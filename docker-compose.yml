@@ -1,0 +1,9 @@
+services:
+  app:
+    build: .
+    container_name: artrest-shifts-app
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    ports:
+      - "3000:3000"
