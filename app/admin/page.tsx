@@ -73,6 +73,8 @@ function buildApplicationSearch(
     app.rejection_reason || '',
     slot?.position || '',
     slot?.work_date || '',
+    slot?.time_from || '',
+    slot?.time_to || '',
     restaurant?.name || '',
     restaurant?.address || '',
   ].join(' ');
@@ -95,12 +97,16 @@ export default async function AdminPage(props: { searchParams: SearchParams }) {
 
   const { data: slotsData } = await supabase
     .from('slots')
-    .select('id, restaurant_id, work_date, time_from, time_to, position, hourly_rate, comment, status, is_hot, created_at')
+    .select(
+      'id, restaurant_id, work_date, time_from, time_to, position, hourly_rate, comment, status, is_hot, created_at'
+    )
     .order('work_date', { ascending: false });
 
   const { data: applicationsData } = await supabase
     .from('applications')
-    .select('id, slot_id, full_name, home_restaurant, contact, comment, created_at, status, rejection_reason')
+    .select(
+      'id, slot_id, full_name, home_restaurant, contact, comment, created_at, status, rejection_reason'
+    )
     .order('created_at', { ascending: false });
 
   const restaurants = (restaurantsData || []) as Restaurant[];
@@ -154,6 +160,7 @@ export default async function AdminPage(props: { searchParams: SearchParams }) {
     if (app.status && app.status !== 'pending') return false;
     if (!filterByRestaurantAndDate(slot)) return false;
     if (!q) return true;
+
     return matchesText(
       buildApplicationSearch(app, slot, restaurantMap.get(slot.restaurant_id)),
       q
@@ -176,6 +183,7 @@ export default async function AdminPage(props: { searchParams: SearchParams }) {
       restaurantFilter={restaurantFilter}
       from={from}
       to={to}
+      allSlots={slots}
     />
   );
 }

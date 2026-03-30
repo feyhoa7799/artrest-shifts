@@ -59,6 +59,7 @@ type Props = {
   restaurantFilter: string;
   from: string;
   to: string;
+  allSlots: Slot[];
 };
 
 type SlotFormState = {
@@ -155,6 +156,7 @@ export default function AdminDashboard({
   restaurantFilter,
   from,
   to,
+  allSlots,
 }: Props) {
   const todayStr = getTodayLocalDate();
   const nowTimeStr = getNowLocalTime();
@@ -560,84 +562,6 @@ export default function AdminDashboard({
               </div>
             </div>
 
-            <div className="rounded-xl border bg-white p-6 shadow-sm">
-              <h2 className="mb-4 text-xl font-semibold">Фильтры</h2>
-
-              <form className="grid gap-4 md:grid-cols-5">
-                <input type="hidden" name="tab" value={tab} />
-
-                <div className="md:col-span-2">
-                  <label className="mb-1 block text-sm font-medium text-gray-700">
-                    Поиск
-                  </label>
-                  <input
-                    type="text"
-                    name="q"
-                    defaultValue={q}
-                    placeholder="Ресторан, должность, ФИО..."
-                    className="w-full rounded-lg border p-3"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-700">
-                    Ресторан
-                  </label>
-                  <select
-                    name="restaurant"
-                    defaultValue={restaurantFilter}
-                    className="w-full rounded-lg border p-3"
-                  >
-                    <option value="">Все рестораны</option>
-                    {restaurants.map((restaurant) => (
-                      <option key={restaurant.id} value={restaurant.id}>
-                        {restaurant.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-700">
-                    Дата с
-                  </label>
-                  <input
-                    type="date"
-                    name="from"
-                    min={todayStr}
-                    defaultValue={from}
-                    className="w-full rounded-lg border p-3"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-700">
-                    Дата по
-                  </label>
-                  <input
-                    type="date"
-                    name="to"
-                    min={todayStr}
-                    defaultValue={to}
-                    className="w-full rounded-lg border p-3"
-                  />
-                </div>
-
-                <div className="md:col-span-5 flex gap-2">
-                  <button className="rounded-lg bg-red-500 px-4 py-2 text-white hover:bg-red-600">
-                    Применить
-                  </button>
-
-                  <a
-                    href={`/admin?tab=${tab}`}
-                    className="rounded-lg border px-4 py-2 text-gray-700 hover:bg-gray-50"
-                  >
-                    Сбросить
-                  </a>
-                </div>
-              </form>
-            </div>
-
             {tab === 'open' && (
               <div className="rounded-xl border bg-white p-6 shadow-sm">
                 <div className="mb-4 flex items-center justify-between">
@@ -690,7 +614,6 @@ export default function AdminDashboard({
                 ) : (
                   <div className="space-y-4">
                     {pendingApplications.map((app) => {
-                      const allSlots = [...openSlots, ...assignedSlots, ...closedSlots];
                       const slot = allSlots.find((s) => s.id === app.slot_id);
                       const restaurant = restaurants.find((r) => r.id === slot?.restaurant_id);
                       const meta = slot
