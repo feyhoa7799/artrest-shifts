@@ -1,6 +1,11 @@
 services:
   app:
-    build: .
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+        NEXT_PUBLIC_YANDEX_MAP_API_KEY: ${NEXT_PUBLIC_YANDEX_MAP_API_KEY}
     container_name: artrest-shifts-app
     restart: unless-stopped
     env_file:
