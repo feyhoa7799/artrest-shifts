@@ -1,12 +1,15 @@
+import Image from 'next/image';
 import { supabase } from '@/lib/supabase';
-import UserForm from '@/app/components/UserForm';
 import Map from '@/app/components/Map';
 import ContactCard from '@/app/components/ContactCard';
+import MyApplications from '@/app/components/MyApplications';
+import AuthGate from '@/app/components/AuthGate';
 
 type SearchParams = Promise<{
   position?: string;
   date?: string;
   metro?: string;
+  focus?: string;
 }>;
 
 type SlotRow = {
@@ -24,6 +27,7 @@ type Restaurant = {
   metro: string | null;
   lat: number | null;
   lng: number | null;
+  isHot?: boolean;
 };
 
 export default async function Home(props: { searchParams: SearchParams }) {
@@ -31,6 +35,7 @@ export default async function Home(props: { searchParams: SearchParams }) {
   const selectedPosition = searchParams.position || '';
   const selectedDate = searchParams.date || '';
   const selectedMetro = searchParams.metro || '';
+  const focusRestaurantId = searchParams.focus ? Number(searchParams.focus) : null;
 
   const todayStr = new Date().toISOString().slice(0, 10);
 
@@ -71,13 +76,17 @@ export default async function Home(props: { searchParams: SearchParams }) {
 
     const { data, error } = await restaurantQuery;
 
-    restaurants = (data || []) as Restaurant[];
+    restaurants = ((data || []) as Restaurant[]).map((restaurant) => ({
+      ...restaurant,
+      isHot: hotRestaurantIds.has(restaurant.id),
+    }));
+
     restaurantsError = error?.message || null;
   }
 
   restaurants.sort((a, b) => {
-    const aHot = hotRestaurantIds.has(a.id) ? 1 : 0;
-    const bHot = hotRestaurantIds.has(b.id) ? 1 : 0;
+    const aHot = a.isHot ? 1 : 0;
+    const bHot = b.isHot ? 1 : 0;
     return bHot - aHot || a.name.localeCompare(b.name);
   });
 
@@ -97,21 +106,57 @@ export default async function Home(props: { searchParams: SearchParams }) {
   const metros = [...new Set((allRestaurantsWithMetro || []).map((r) => r.metro).filter(Boolean))].sort();
 
   const errorMessage = slotsError?.message || restaurantsError;
+  const hotCount = restaurants.filter((r) => r.isHot).length;
 
   return (
-    <main className="min-h-screen bg-gray-50 p-6">
-      <div className="mx-auto max-w-5xl">
-        <h1 className="mb-2 text-3xl font-bold">Подработки в Rostic’s</h1>
+    <main className="min-h-screen bg-[#fafafa]">
+      <div className="mx-auto max-w-6xl p-6">
+        <div className="relative mb-6 overflow-hidden rounded-[28px] bg-red-600 text-white shadow-lg">
+          <div className="absolute inset-0">
+            <Image
+              src="/brand/rostics-team-hero.jpg"
+              alt="Команда ROSTIC'S"
+              fill
+              sizes="(max-width: 768px) 100vw, 1200px"
+              className="object-cover opacity-35"
+              priority
+            />
+          </div>
 
-        <p className="mb-6 text-gray-600">
-          Заполните данные, выберите ресторан и откликнитесь на доступную смену
-        </p>
+          <div className="relative grid gap-6 p-8 md:grid-cols-[1.2fr_0.8fr] md:p-10">
+            <div>
+              <p className="mb-2 text-sm font-semibold uppercase tracking-[0.18em] text-white/90">
+                АртРест × ROSTIC’S
+              </p>
+              <h1 className="mb-3 text-3xl font-bold md:text-5xl">
+                Подработки рядом с домом
+              </h1>
+              <p className="max-w-2xl text-white/90">
+                Войди по email-коду, оформи профиль и откликайся на смены в соседних ресторанах.
+              </p>
 
-        <div className="mb-6">
-          <UserForm />
+              {hotCount > 0 && (
+                <div className="mt-5 inline-flex rounded-full bg-white px-4 py-2 text-sm font-semibold text-red-600">
+                  🔥 Сейчас доступно горячих ресторанов: {hotCount}
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-2xl bg-white/95 p-4 text-gray-900 backdrop-blur">
+              <ContactCard />
+            </div>
+          </div>
         </div>
 
-        <div className="mb-6 rounded-xl border bg-white p-4 shadow-sm">
+        <div className="mb-6">
+          <AuthGate />
+        </div>
+
+        <div className="mb-6">
+          <MyApplications />
+        </div>
+
+        <div className="mb-6 rounded-2xl border bg-white p-5 shadow-sm">
           <h2 className="mb-4 text-lg font-semibold">Фильтры</h2>
 
           <form className="grid gap-4 md:grid-cols-4">
@@ -187,10 +232,6 @@ export default async function Home(props: { searchParams: SearchParams }) {
           </form>
         </div>
 
-        <div className="mb-6">
-          <ContactCard />
-        </div>
-
         {errorMessage && (
           <div className="mb-4 rounded-lg bg-red-100 p-4 text-red-700">
             Ошибка загрузки данных: {errorMessage}
@@ -198,8 +239,8 @@ export default async function Home(props: { searchParams: SearchParams }) {
         )}
 
         {!errorMessage && restaurants.length > 0 && (
-          <div className="mb-6">
-            <Map restaurants={restaurants} />
+          <div id="map-section" className="mb-6 scroll-mt-6">
+            <Map restaurants={restaurants} focusRestaurantId={focusRestaurantId} />
           </div>
         )}
 
@@ -211,53 +252,58 @@ export default async function Home(props: { searchParams: SearchParams }) {
         </div>
 
         {!errorMessage && restaurants.length === 0 ? (
-          <div className="rounded-xl border bg-white p-6 text-gray-500 shadow-sm">
+          <div className="rounded-2xl border bg-white p-6 text-gray-500 shadow-sm">
             По выбранным фильтрам открытых смен нет
           </div>
         ) : (
           <div className="grid gap-4 md:grid-cols-2">
-            {restaurants.map((r) => {
-              const isHotRestaurant = hotRestaurantIds.has(r.id);
-
-              return (
-                <div
-                  key={r.id}
-                  className={`rounded-xl border bg-white p-4 shadow-sm transition hover:shadow-md ${
-                    isHotRestaurant ? 'border-red-300 ring-1 ring-red-200 bg-red-50/30' : ''
-                  }`}
-                >
-                  <div className="mb-2 flex items-start justify-between gap-3">
-                    <h3 className="text-lg font-semibold">{r.name}</h3>
-                    {isHotRestaurant && (
-                      <span className="rounded-full bg-red-100 px-3 py-1 text-sm font-medium text-red-700">
-                        🔥 Горячая смена
-                      </span>
-                    )}
-                  </div>
-
-                  <p className="text-sm text-gray-700">{r.address}</p>
-
-                  <div className="mt-2 flex flex-wrap gap-2 text-sm">
-                    <span className="rounded-full bg-gray-100 px-3 py-1 text-gray-700">
-                      {r.city}
+            {restaurants.map((r) => (
+              <div
+                key={r.id}
+                className={`rounded-2xl border bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${
+                  r.isHot ? 'border-red-300 ring-1 ring-red-200 bg-red-50/30' : ''
+                }`}
+              >
+                <div className="mb-2 flex items-start justify-between gap-3">
+                  <h3 className="text-lg font-semibold">{r.name}</h3>
+                  {r.isHot && (
+                    <span className="rounded-full bg-red-100 px-3 py-1 text-sm font-medium text-red-700">
+                      🔥 Горячая смена
                     </span>
+                  )}
+                </div>
 
-                    {r.metro && (
-                      <span className="rounded-full bg-gray-100 px-3 py-1 text-gray-700">
-                        🚇 {r.metro}
-                      </span>
-                    )}
-                  </div>
+                <p className="text-sm text-gray-700">{r.address}</p>
 
+                <div className="mt-3 flex flex-wrap gap-2 text-sm">
+                  <span className="rounded-full bg-gray-100 px-3 py-1 text-gray-700">
+                    {r.city}
+                  </span>
+
+                  {r.metro && (
+                    <span className="rounded-full bg-gray-100 px-3 py-1 text-gray-700">
+                      🚇 {r.metro}
+                    </span>
+                  )}
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-2">
                   <a
                     href={`/restaurants/${r.id}`}
-                    className="mt-3 inline-block rounded-lg bg-red-500 px-4 py-2 text-white hover:bg-red-600"
+                    className="inline-block rounded-lg bg-red-500 px-4 py-2 text-white hover:bg-red-600"
                   >
                     Посмотреть смены
                   </a>
+
+                  <a
+                    href={`/?focus=${r.id}#map-section`}
+                    className="inline-block rounded-lg border px-4 py-2 text-gray-700 hover:bg-gray-50"
+                  >
+                    На карте
+                  </a>
                 </div>
-              );
-            })}
+              </div>
+            ))}
           </div>
         )}
       </div>

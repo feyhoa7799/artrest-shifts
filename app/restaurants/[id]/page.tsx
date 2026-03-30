@@ -121,6 +121,15 @@ export default async function RestaurantPage({ params }: PageProps) {
               </span>
             )}
           </div>
+
+          <div className="mt-4">
+            <a
+              href={`/?focus=${restaurant.id}#map-section`}
+              className="inline-block rounded-lg border px-4 py-2 text-gray-700 hover:bg-gray-50"
+            >
+              На карте
+            </a>
+          </div>
         </div>
 
         <div className="mb-6">
@@ -177,7 +186,15 @@ export default async function RestaurantPage({ params }: PageProps) {
                       Слот открыт: {formatRelative(slot.created_at)}
                     </p>
 
-                    <ApplyButton slotId={slot.id} />
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <ApplyButton slotId={slot.id} />
+                      <a
+                        href={`/?focus=${restaurant.id}#map-section`}
+                        className="mt-3 inline-block rounded-lg border px-4 py-2 text-gray-700 hover:bg-gray-50"
+                      >
+                        На карте
+                      </a>
+                    </div>
                   </div>
                 );
               })}

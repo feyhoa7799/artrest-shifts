@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin } from '@/lib/supabase-admin';
 import AdminDashboard from './AdminDashboard';
 
 type SearchParams = Promise<{
@@ -42,6 +42,22 @@ type Application = {
   created_at: string;
   status: 'pending' | 'approved' | 'rejected' | null;
   rejection_reason: string | null;
+  employee_email: string | null;
+  employee_phone: string | null;
+  employee_role: string | null;
+  employee_home_restaurant_id: number | null;
+};
+
+type EmployeeProfile = {
+  user_id: string;
+  email: string;
+  full_name: string;
+  phone: string;
+  role: string;
+  home_restaurant_id: number;
+  is_blocked: boolean;
+  created_at: string;
+  updated_at: string;
 };
 
 function matchesText(value: string, q: string) {
@@ -71,12 +87,30 @@ function buildApplicationSearch(
     app.contact,
     app.comment || '',
     app.rejection_reason || '',
+    app.employee_email || '',
+    app.employee_phone || '',
+    app.employee_role || '',
     slot?.position || '',
     slot?.work_date || '',
     slot?.time_from || '',
     slot?.time_to || '',
     restaurant?.name || '',
     restaurant?.address || '',
+  ].join(' ');
+}
+
+function buildEmployeeSearch(
+  employee: EmployeeProfile,
+  restaurant?: Restaurant | null
+) {
+  return [
+    employee.email,
+    employee.full_name,
+    employee.phone,
+    employee.role,
+    restaurant?.name || '',
+    restaurant?.address || '',
+    restaurant?.city || '',
   ].join(' ');
 }
 
@@ -90,28 +124,34 @@ export default async function AdminPage(props: { searchParams: SearchParams }) {
   const to = searchParams.to || '';
   const editId = Number(searchParams.edit || 0);
 
-  const { data: restaurantsData } = await supabase
+  const { data: restaurantsData } = await supabaseAdmin
     .from('restaurants')
     .select('id, name, address, city, metro')
     .order('name', { ascending: true });
 
-  const { data: slotsData } = await supabase
+  const { data: slotsData } = await supabaseAdmin
     .from('slots')
-    .select(
-      'id, restaurant_id, work_date, time_from, time_to, position, hourly_rate, comment, status, is_hot, created_at'
-    )
+    .select('id, restaurant_id, work_date, time_from, time_to, position, hourly_rate, comment, status, is_hot, created_at')
     .order('work_date', { ascending: false });
 
-  const { data: applicationsData } = await supabase
+  const { data: applicationsData } = await supabaseAdmin
     .from('applications')
     .select(
-      'id, slot_id, full_name, home_restaurant, contact, comment, created_at, status, rejection_reason'
+      'id, slot_id, full_name, home_restaurant, contact, comment, created_at, status, rejection_reason, employee_email, employee_phone, employee_role, employee_home_restaurant_id'
+    )
+    .order('created_at', { ascending: false });
+
+  const { data: employeesData } = await supabaseAdmin
+    .from('employee_profiles')
+    .select(
+      'user_id, email, full_name, phone, role, home_restaurant_id, is_blocked, created_at, updated_at'
     )
     .order('created_at', { ascending: false });
 
   const restaurants = (restaurantsData || []) as Restaurant[];
   const slots = (slotsData || []) as Slot[];
   const applications = (applicationsData || []) as Application[];
+  const employees = (employeesData || []) as EmployeeProfile[];
 
   const restaurantMap = new Map<number, Restaurant>();
   restaurants.forEach((restaurant) => restaurantMap.set(restaurant.id, restaurant));
@@ -167,6 +207,24 @@ export default async function AdminPage(props: { searchParams: SearchParams }) {
     );
   });
 
+  const registeredEmployees = employees.filter((employee) => {
+    if (restaurantFilter && String(employee.home_restaurant_id) !== restaurantFilter) {
+      return false;
+    }
+
+    const createdDate = employee.created_at.slice(0, 10);
+
+    if (from && createdDate < from) return false;
+    if (to && createdDate > to) return false;
+
+    if (!q) return true;
+
+    return matchesText(
+      buildEmployeeSearch(employee, restaurantMap.get(employee.home_restaurant_id)),
+      q
+    );
+  });
+
   const editSlot = editId ? slots.find((slot) => slot.id === editId) || null : null;
 
   return (
@@ -184,6 +242,7 @@ export default async function AdminPage(props: { searchParams: SearchParams }) {
       from={from}
       to={to}
       allSlots={slots}
+      employees={registeredEmployees}
     />
   );
 }

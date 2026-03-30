@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { supabase } from '@/lib/supabase';
 
 type ApplyButtonProps = {
   slotId: number;
@@ -13,26 +14,24 @@ export default function ApplyButton({ slotId }: ApplyButtonProps) {
     setLoading(true);
 
     try {
-      const stored = localStorage.getItem('userData');
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
 
-      if (!stored) {
-        alert('Сначала заполните профиль');
+      if (!session?.access_token) {
+        alert('Сначала войдите через email и заполните профиль');
+        setLoading(false);
         return;
       }
-
-      const user = JSON.parse(stored);
 
       const res = await fetch('/api/apply', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({
           slotId,
-          fullName: user.fullName,
-          homeRestaurant: user.homeRestaurant,
-          contact: user.contact,
-          comment: user.comment || '',
         }),
       });
 
@@ -40,6 +39,7 @@ export default function ApplyButton({ slotId }: ApplyButtonProps) {
 
       if (!res.ok) {
         alert(data.error || 'Ошибка при отправке отклика');
+        setLoading(false);
         return;
       }
 

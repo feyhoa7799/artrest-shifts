@@ -26,7 +26,9 @@ export async function POST(req: NextRequest) {
 
     const { data: profile, error: profileError } = await supabaseAdmin
       .from('employee_profiles')
-      .select('user_id, email, full_name, phone, role, home_restaurant_id')
+      .select(
+        'user_id, email, full_name, phone, role, home_restaurant_id, is_blocked'
+      )
       .eq('user_id', user.id)
       .single();
 
@@ -34,6 +36,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: 'Сначала заполните профиль сотрудника' },
         { status: 400 }
+      );
+    }
+
+    if (profile.is_blocked) {
+      return NextResponse.json(
+        { error: 'Ваш аккаунт заблокирован. Обратитесь к HR BP.' },
+        { status: 403 }
       );
     }
 
@@ -113,7 +122,7 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ success: true });
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: 'Ошибка сервера при отклике' },
       { status: 500 }

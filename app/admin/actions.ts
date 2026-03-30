@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin } from '@/lib/supabase-admin';
 
 function getString(formData: FormData, key: string) {
   return String(formData.get(key) || '').trim();
@@ -63,7 +63,7 @@ export async function saveRestaurant(formData: FormData) {
     throw new Error('Долгота ресторана указана некорректно');
   }
 
-  const { error } = await supabase.from('restaurants').insert([
+  const { error } = await supabaseAdmin.from('restaurants').insert([
     {
       name,
       address,
@@ -116,17 +116,10 @@ export async function saveSlot(formData: FormData) {
   };
 
   if (slotId) {
-    const { error } = await supabase
-      .from('slots')
-      .update(payload)
-      .eq('id', slotId);
-
+    const { error } = await supabaseAdmin.from('slots').update(payload).eq('id', slotId);
     if (error) throw new Error(error.message);
   } else {
-    const { error } = await supabase
-      .from('slots')
-      .insert([payload]);
-
+    const { error } = await supabaseAdmin.from('slots').insert([payload]);
     if (error) throw new Error(error.message);
   }
 
@@ -138,7 +131,7 @@ export async function closeSlot(formData: FormData) {
   const slotId = getNumber(formData, 'slot_id');
   if (!slotId) throw new Error('Не найден слот');
 
-  const { error } = await supabase
+  const { error } = await supabaseAdmin
     .from('slots')
     .update({ status: 'closed' })
     .eq('id', slotId);
@@ -153,7 +146,7 @@ export async function reopenSlotAsNew(formData: FormData) {
   const slotId = getNumber(formData, 'slot_id');
   if (!slotId) throw new Error('Не найден слот');
 
-  const { data: slot, error: readError } = await supabase
+  const { data: slot, error: readError } = await supabaseAdmin
     .from('slots')
     .select('*')
     .eq('id', slotId)
@@ -163,21 +156,19 @@ export async function reopenSlotAsNew(formData: FormData) {
     throw new Error(readError?.message || 'Слот не найден');
   }
 
-  const { error: insertError } = await supabase
-    .from('slots')
-    .insert([
-      {
-        restaurant_id: slot.restaurant_id,
-        work_date: slot.work_date,
-        time_from: slot.time_from,
-        time_to: slot.time_to,
-        position: slot.position,
-        hourly_rate: slot.hourly_rate,
-        comment: slot.comment,
-        is_hot: slot.is_hot ?? false,
-        status: 'open',
-      },
-    ]);
+  const { error: insertError } = await supabaseAdmin.from('slots').insert([
+    {
+      restaurant_id: slot.restaurant_id,
+      work_date: slot.work_date,
+      time_from: slot.time_from,
+      time_to: slot.time_to,
+      position: slot.position,
+      hourly_rate: slot.hourly_rate,
+      comment: slot.comment,
+      is_hot: slot.is_hot ?? false,
+      status: 'open',
+    },
+  ]);
 
   if (insertError) throw new Error(insertError.message);
 
@@ -198,7 +189,7 @@ export async function rejectApplication(formData: FormData) {
     throw new Error('Нужно указать причину отклонения');
   }
 
-  const { error: appError } = await supabase
+  const { error: appError } = await supabaseAdmin
     .from('applications')
     .update({
       status: 'rejected',
@@ -208,7 +199,7 @@ export async function rejectApplication(formData: FormData) {
 
   if (appError) throw new Error(appError.message);
 
-  const { error: slotError } = await supabase
+  const { error: slotError } = await supabaseAdmin
     .from('slots')
     .update({ status: 'open' })
     .eq('id', slotId);
@@ -227,7 +218,7 @@ export async function approveApplication(formData: FormData) {
     throw new Error('Не хватает данных для подтверждения');
   }
 
-  const { error: approveError } = await supabase
+  const { error: approveError } = await supabaseAdmin
     .from('applications')
     .update({
       status: 'approved',
@@ -237,7 +228,7 @@ export async function approveApplication(formData: FormData) {
 
   if (approveError) throw new Error(approveError.message);
 
-  const { error: rejectOthersError } = await supabase
+  const { error: rejectOthersError } = await supabaseAdmin
     .from('applications')
     .update({
       status: 'rejected',
@@ -249,7 +240,7 @@ export async function approveApplication(formData: FormData) {
 
   if (rejectOthersError) throw new Error(rejectOthersError.message);
 
-  const { error: slotError } = await supabase
+  const { error: slotError } = await supabaseAdmin
     .from('slots')
     .update({ status: 'assigned' })
     .eq('id', slotId);
@@ -257,5 +248,25 @@ export async function approveApplication(formData: FormData) {
   if (slotError) throw new Error(slotError.message);
 
   revalidatePath('/');
+  revalidatePath('/admin');
+}
+
+export async function toggleEmployeeBlock(formData: FormData) {
+  const userId = getString(formData, 'user_id');
+  const nextBlockedValue = getString(formData, 'next_blocked') === 'true';
+
+  if (!userId) {
+    throw new Error('Не найден пользователь');
+  }
+
+  const { error } = await supabaseAdmin
+    .from('employee_profiles')
+    .update({
+      is_blocked: nextBlockedValue,
+    })
+    .eq('user_id', userId);
+
+  if (error) throw new Error(error.message);
+
   revalidatePath('/admin');
 }
