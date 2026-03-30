@@ -2,8 +2,7 @@ node_modules
 .next
 .git
 .gitignore
-Dockerfile
-docker-compose.yml
-.env
-.env.local
-npm-debug.log
+.env*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

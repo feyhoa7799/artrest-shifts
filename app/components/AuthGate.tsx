@@ -195,10 +195,17 @@ export default function AuthGate() {
       }
 
       const res = await fetch('/api/profile', {
+        method: 'POST',
         headers: {
-          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
         },
-        cache: 'no-store',
+        body: JSON.stringify({
+          full_name: profile.full_name.trim(),
+          phone: profile.phone.trim(),
+          role: profile.role,
+          home_restaurant_id: Number(profile.home_restaurant_id),
+        }),
       });
 
       const data = await readJsonSafe(res);
