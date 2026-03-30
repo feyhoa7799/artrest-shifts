@@ -89,7 +89,9 @@ async function readJsonSafe(res: Response) {
 
 export default function AuthGate() {
   const [loading, setLoading] = useState(true);
+  const [authStep, setAuthStep] = useState<'email' | 'code'>('email');
   const [email, setEmail] = useState('');
+  const [code, setCode] = useState('');
   const [emailSentTo, setEmailSentTo] = useState('');
   const [user, setUser] = useState<User | null>(null);
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
@@ -97,13 +99,15 @@ export default function AuthGate() {
   const [savedProfileKey, setSavedProfileKey] = useState(profileFingerprint(emptyProfile));
   const [profileLoaded, setProfileLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [sendingLink, setSendingLink] = useState(false);
+  const [sendingCode, setSendingCode] = useState(false);
+  const [verifyingCode, setVerifyingCode] = useState(false);
   const [stats, setStats] = useState<Stats | null>(null);
   const [profileEditorOpen, setProfileEditorOpen] = useState(true);
   const [notice, setNotice] = useState('');
 
   const mountedRef = useRef(false);
   const requestIdRef = useRef(0);
+  const noticeTimeoutRef = useRef<number | null>(null);
 
   const phoneIsValid = useMemo(() => /^\+7\d{10}$/.test(profile.phone || ''), [profile.phone]);
   const currentProfileKey = useMemo(() => profileFingerprint(profile), [profile]);
@@ -118,14 +122,19 @@ export default function AuthGate() {
 
   function showNotice(text: string) {
     setNotice(text);
-    window.clearTimeout((showNotice as typeof showNotice & { timeoutId?: number }).timeoutId);
-    (showNotice as typeof showNotice & { timeoutId?: number }).timeoutId = window.setTimeout(() => {
+
+    if (noticeTimeoutRef.current) {
+      window.clearTimeout(noticeTimeoutRef.current);
+    }
+
+    noticeTimeoutRef.current = window.setTimeout(() => {
       setNotice('');
+      noticeTimeoutRef.current = null;
     }, 5000);
   }
 
   function setFallbackProfile(sessionUser: User | null) {
-    const fallback = {
+    const fallback: Profile = {
       ...emptyProfile,
       user_id: sessionUser?.id || '',
       email: sessionUser?.email || '',
@@ -143,8 +152,7 @@ export default function AuthGate() {
       } = await supabase.auth.getSession();
 
       return session?.access_token || null;
-    } catch (error) {
-      console.error('Не удалось получить access token', error);
+    } catch {
       return null;
     }
   }
@@ -175,11 +183,8 @@ export default function AuthGate() {
       }
 
       setStats(data.stats || null);
-    } catch (error) {
-      console.error('Ошибка загрузки статистики', error);
-      if (mountedRef.current) {
-        setStats(null);
-      }
+    } catch {
+      if (mountedRef.current) setStats(null);
     }
   }
 
@@ -188,24 +193,15 @@ export default function AuthGate() {
       const token = accessToken ?? (await getAccessToken());
 
       if (!token) {
-        if (mountedRef.current) {
-          setFallbackProfile(sessionUser || null);
-        }
+        if (mountedRef.current) setFallbackProfile(sessionUser || null);
         return;
       }
 
       const res = await fetch('/api/profile', {
-        method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
+          Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          full_name: profile.full_name.trim(),
-          phone: profile.phone.trim(),
-          role: profile.role,
-          home_restaurant_id: Number(profile.home_restaurant_id),
-        }),
+        cache: 'no-store',
       });
 
       const data = await readJsonSafe(res);
@@ -213,7 +209,6 @@ export default function AuthGate() {
       if (!mountedRef.current) return;
 
       if (!res.ok || !data) {
-        console.error('Профиль не удалось загрузить', res.status, data);
         setFallbackProfile(sessionUser || null);
         return;
       }
@@ -231,15 +226,14 @@ export default function AuthGate() {
 
         setProfile(loadedProfile);
         setSavedProfileKey(profileFingerprint(loadedProfile));
-        setProfileEditorOpen(!loadedProfile.full_name || !loadedProfile.role || !loadedProfile.home_restaurant_id);
+        setProfileEditorOpen(
+          !loadedProfile.full_name || !loadedProfile.role || !loadedProfile.home_restaurant_id
+        );
       } else {
         setFallbackProfile(sessionUser || null);
       }
-    } catch (error) {
-      console.error('Ошибка загрузки профиля', error);
-      if (mountedRef.current) {
-        setFallbackProfile(sessionUser || null);
-      }
+    } catch {
+      if (mountedRef.current) setFallbackProfile(sessionUser || null);
     }
   }
 
@@ -263,15 +257,11 @@ export default function AuthGate() {
 
       setUser(sessionUser);
 
-      const { data: restaurantData, error: restaurantError } = await supabase
+      const { data: restaurantData } = await supabase
         .from('restaurants')
         .select('id, name')
         .eq('is_active', true)
         .order('name', { ascending: true });
-
-      if (restaurantError) {
-        console.error('Ошибка загрузки ресторанов', restaurantError);
-      }
 
       if (!mountedRef.current || currentRequestId !== requestIdRef.current) return;
 
@@ -285,9 +275,7 @@ export default function AuthGate() {
         setStats(null);
         setProfileEditorOpen(true);
       }
-    } catch (error) {
-      console.error('Ошибка инициализации авторизации', error);
-
+    } catch {
       if (!mountedRef.current || currentRequestId !== requestIdRef.current) return;
 
       setUser(null);
@@ -306,13 +294,14 @@ export default function AuthGate() {
 
   useEffect(() => {
     mountedRef.current = true;
-
     loadInitial();
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event) => {
       if (event === 'SIGNED_IN') {
+        setAuthStep('email');
+        setCode('');
         setEmailSentTo('');
         showNotice('Вход выполнен. Личный кабинет обновлен.');
       }
@@ -321,25 +310,24 @@ export default function AuthGate() {
 
     return () => {
       mountedRef.current = false;
+      if (noticeTimeoutRef.current) window.clearTimeout(noticeTimeoutRef.current);
       subscription.unsubscribe();
     };
   }, []);
 
-  async function sendMagicLink() {
+  async function sendCode() {
     if (!email.trim()) {
       alert('Введите email');
       return;
     }
 
-    setSendingLink(true);
+    setSendingCode(true);
 
     try {
-      const origin = typeof window !== 'undefined' ? window.location.origin : '';
       const { error } = await supabase.auth.signInWithOtp({
         email: email.trim(),
         options: {
           shouldCreateUser: true,
-          emailRedirectTo: origin || undefined,
         },
       });
 
@@ -349,8 +337,37 @@ export default function AuthGate() {
       }
 
       setEmailSentTo(email.trim());
+      setAuthStep('code');
+      showNotice('Код отправлен на email.');
     } finally {
-      setSendingLink(false);
+      setSendingCode(false);
+    }
+  }
+
+  async function verifyCode() {
+    if (!email.trim() || !code.trim()) {
+      alert('Введите email и код');
+      return;
+    }
+
+    setVerifyingCode(true);
+
+    try {
+      const { error } = await supabase.auth.verifyOtp({
+        email: email.trim(),
+        token: code.trim(),
+        type: 'email',
+      });
+
+      if (error) {
+        alert(error.message);
+        return;
+      }
+
+      setCode('');
+      await loadInitial();
+    } finally {
+      setVerifyingCode(false);
     }
   }
 
@@ -434,8 +451,7 @@ export default function AuthGate() {
       setProfileEditorOpen(false);
       await loadStats(accessToken);
       showNotice('Профиль сохранен. Личный кабинет обновлен.');
-    } catch (error) {
-      console.error('Ошибка сохранения профиля', error);
+    } catch {
       alert('Ошибка сети при сохранении профиля');
     } finally {
       setSaving(false);
@@ -444,7 +460,9 @@ export default function AuthGate() {
 
   async function logout() {
     await supabase.auth.signOut();
+    setAuthStep('email');
     setEmail('');
+    setCode('');
     setEmailSentTo('');
     await loadInitial();
   }
@@ -467,11 +485,15 @@ export default function AuthGate() {
         <div className="mb-4">
           <h2 className="text-xl font-semibold">Вход сотрудника</h2>
           <p className="mt-1 text-sm text-gray-500">
-            Вход выполняется по ссылке из письма. Код на странице вводить не нужно.
+            Введите email, получите код и подтвердите вход.
           </p>
         </div>
 
-        {!emailSentTo ? (
+        {notice && (
+          <div className="mb-4 rounded-lg bg-green-50 p-3 text-sm text-green-800">{notice}</div>
+        )}
+
+        {authStep === 'email' ? (
           <div className="space-y-3">
             <input
               type="email"
@@ -481,30 +503,50 @@ export default function AuthGate() {
               className="w-full rounded-lg border p-3"
             />
             <button
-              onClick={sendMagicLink}
-              disabled={sendingLink}
+              onClick={sendCode}
+              disabled={sendingCode}
               className="rounded-lg bg-red-500 px-4 py-2 text-white hover:bg-red-600 disabled:opacity-60"
             >
-              {sendingLink ? 'Отправляю ссылку...' : 'Получить ссылку для входа'}
+              {sendingCode ? 'Отправляю код...' : 'Получить код на email'}
             </button>
           </div>
         ) : (
-          <div className="space-y-3 rounded-xl border border-green-200 bg-green-50 p-4 text-sm text-green-800">
-            <p>
-              Письмо отправлено на <span className="font-semibold">{emailSentTo}</span>.
-            </p>
-            <p>
-              Открой письмо и нажми на ссылку подтверждения. После возврата на сайт личный кабинет откроется автоматически.
-            </p>
-            <p className="text-green-700/90">
-              Даже если в письме написано <span className="font-medium">Confirm your signup</span>, для сотрудника это и есть вход / подтверждение.
-            </p>
-            <button
-              onClick={() => setEmailSentTo('')}
-              className="w-fit rounded-lg border border-green-300 bg-white px-4 py-2 text-green-800 hover:bg-green-100"
-            >
-              Указать другой email
-            </button>
+          <div className="space-y-3">
+            <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700">
+              Код отправлен на <span className="font-semibold">{emailSentTo || email}</span>
+            </div>
+            <input
+              type="email"
+              placeholder="Email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full rounded-lg border p-3"
+            />
+            <input
+              type="text"
+              placeholder="Код из письма"
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\s/g, ''))}
+              className="w-full rounded-lg border p-3"
+            />
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={verifyCode}
+                disabled={verifyingCode}
+                className="rounded-lg bg-red-500 px-4 py-2 text-white hover:bg-red-600 disabled:opacity-60"
+              >
+                {verifyingCode ? 'Проверяю...' : 'Войти'}
+              </button>
+              <button
+                onClick={() => {
+                  setAuthStep('email');
+                  setCode('');
+                }}
+                className="rounded-lg border px-4 py-2 text-gray-700 hover:bg-gray-50"
+              >
+                Назад
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -537,9 +579,7 @@ export default function AuthGate() {
         </div>
 
         {notice && (
-          <div className="mb-4 rounded-lg bg-green-50 p-3 text-sm text-green-700">
-            {notice}
-          </div>
+          <div className="mb-4 rounded-lg bg-green-50 p-3 text-sm text-green-800">{notice}</div>
         )}
 
         {profile.is_blocked && (
@@ -554,68 +594,35 @@ export default function AuthGate() {
           </div>
         )}
 
-        <div className="mb-5 grid gap-3 md:grid-cols-4">
-          <div className="rounded-xl bg-gray-50 p-4">
-            <p className="text-sm text-gray-500">Статус профиля</p>
-            <p className="mt-1 text-base font-semibold">
-              {profileReady ? 'Заполнен' : 'Нужно завершить'}
-            </p>
-          </div>
-
-          <div className="rounded-xl bg-gray-50 p-4">
-            <p className="text-sm text-gray-500">Подтвержденных смен</p>
-            <p className="mt-1 text-2xl font-semibold">{stats?.totalApproved ?? 0}</p>
-          </div>
-
-          <div className="rounded-xl bg-gray-50 p-4">
-            <p className="text-sm text-gray-500">Отработано часов</p>
-            <p className="mt-1 text-2xl font-semibold">{stats?.totalHours ?? '0.00'}</p>
-          </div>
-
-          <div className="rounded-xl bg-gray-50 p-4">
-            <p className="text-sm text-gray-500">Ресторанов посещено</p>
-            <p className="mt-1 text-2xl font-semibold">{stats?.uniqueRestaurants ?? 0}</p>
-          </div>
-        </div>
-
-        {!profileEditorOpen && profileReady && (
-          <div className="rounded-xl border bg-gray-50 p-4">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <h3 className="font-semibold">Кратко о профиле</h3>
-              {!profileDirty && (
-                <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-700">
-                  Сохранено
-                </span>
-              )}
+        {!profileEditorOpen ? (
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-xl bg-gray-50 p-4">
+              <p className="text-xs uppercase tracking-wide text-gray-500">ФИО</p>
+              <p className="mt-2 font-medium text-gray-900">{profile.full_name || 'Не заполнено'}</p>
             </div>
-
-            <div className="grid gap-2 text-sm text-gray-700 md:grid-cols-2">
-              <p>
-                <span className="font-medium">ФИО:</span> {profile.full_name}
-              </p>
-              <p>
-                <span className="font-medium">Телефон:</span> {profile.phone}
-              </p>
-              <p>
-                <span className="font-medium">Должность:</span> {profile.role}
-              </p>
-              <p>
-                <span className="font-medium">Домашний ресторан:</span> {homeRestaurantName || '—'}
+            <div className="rounded-xl bg-gray-50 p-4">
+              <p className="text-xs uppercase tracking-wide text-gray-500">Телефон</p>
+              <p className="mt-2 font-medium text-gray-900">{profile.phone || 'Не заполнено'}</p>
+            </div>
+            <div className="rounded-xl bg-gray-50 p-4">
+              <p className="text-xs uppercase tracking-wide text-gray-500">Должность</p>
+              <p className="mt-2 font-medium text-gray-900">{profile.role || 'Не заполнено'}</p>
+            </div>
+            <div className="rounded-xl bg-gray-50 p-4">
+              <p className="text-xs uppercase tracking-wide text-gray-500">Домашний ресторан</p>
+              <p className="mt-2 font-medium text-gray-900">
+                {homeRestaurantName || 'Не заполнено'}
               </p>
             </div>
           </div>
-        )}
-
-        {profileEditorOpen && (
-          <div className="space-y-4">
+        ) : (
+          <>
             <div className="grid gap-4 md:grid-cols-2">
               <div>
                 <label className="mb-1 block text-sm font-medium text-gray-700">ФИО</label>
                 <input
                   value={profile.full_name}
-                  onChange={(e) =>
-                    setProfile((prev) => ({ ...prev, full_name: e.target.value }))
-                  }
+                  onChange={(e) => setProfile((prev) => ({ ...prev, full_name: e.target.value }))}
                   className="w-full rounded-lg border p-3"
                 />
               </div>
@@ -640,9 +647,7 @@ export default function AuthGate() {
                 <label className="mb-1 block text-sm font-medium text-gray-700">Должность</label>
                 <select
                   value={profile.role}
-                  onChange={(e) =>
-                    setProfile((prev) => ({ ...prev, role: e.target.value }))
-                  }
+                  onChange={(e) => setProfile((prev) => ({ ...prev, role: e.target.value }))}
                   className="w-full rounded-lg border p-3"
                 >
                   <option value="">Выберите должность</option>
@@ -655,7 +660,9 @@ export default function AuthGate() {
               </div>
 
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">Домашний ресторан</label>
+                <label className="mb-1 block text-sm font-medium text-gray-700">
+                  Домашний ресторан
+                </label>
                 <select
                   value={profile.home_restaurant_id}
                   onChange={(e) =>
@@ -676,7 +683,7 @@ export default function AuthGate() {
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-2">
+            <div className="mt-4 flex flex-wrap gap-2">
               <button
                 onClick={saveProfile}
                 disabled={saving || profile.is_blocked || !profileDirty}
@@ -685,15 +692,29 @@ export default function AuthGate() {
                 {saving ? 'Сохраняю...' : profileDirty ? 'Сохранить профиль' : 'Сохранено'}
               </button>
 
-              {profileReady && (
-                <button
-                  type="button"
-                  onClick={() => setProfileEditorOpen(false)}
-                  className="rounded-lg border px-4 py-2 text-gray-700 hover:bg-gray-50"
-                >
-                  Свернуть
-                </button>
-              )}
+              <button
+                onClick={() => setProfileEditorOpen(false)}
+                className="rounded-lg border px-4 py-2 text-gray-700 hover:bg-gray-50"
+              >
+                Свернуть
+              </button>
+            </div>
+          </>
+        )}
+
+        {stats && (
+          <div className="mt-5 grid gap-3 md:grid-cols-3">
+            <div className="rounded-xl bg-gray-50 p-4">
+              <p className="text-sm text-gray-500">Подтвержденных смен</p>
+              <p className="text-2xl font-semibold">{stats.totalApproved}</p>
+            </div>
+            <div className="rounded-xl bg-gray-50 p-4">
+              <p className="text-sm text-gray-500">Отработано часов</p>
+              <p className="text-2xl font-semibold">{stats.totalHours}</p>
+            </div>
+            <div className="rounded-xl bg-gray-50 p-4">
+              <p className="text-sm text-gray-500">Ресторанов посещено</p>
+              <p className="text-2xl font-semibold">{stats.uniqueRestaurants}</p>
             </div>
           </div>
         )}

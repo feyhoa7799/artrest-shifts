@@ -112,7 +112,9 @@ export async function POST(req: NextRequest) {
 
     const { error: upsertError } = await supabaseAdmin
       .from('employee_profiles')
-      .upsert(payload, { onConflict: 'user_id' });
+      .upsert(payload, {
+        onConflict: 'user_id',
+      });
 
     if (upsertError) {
       return NextResponse.json({ error: upsertError.message }, { status: 500 });
