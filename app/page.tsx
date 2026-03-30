@@ -2,7 +2,6 @@ import Image from 'next/image';
 import { supabase } from '@/lib/supabase';
 import Map from '@/app/components/Map';
 import ContactCard from '@/app/components/ContactCard';
-import MyApplications from '@/app/components/MyApplications';
 import AuthGate from '@/app/components/AuthGate';
 
 type SearchParams = Promise<{
@@ -132,7 +131,7 @@ export default async function Home(props: { searchParams: SearchParams }) {
                 Подработки рядом с домом
               </h1>
               <p className="max-w-2xl text-white/90">
-                Войди по email-коду, оформи профиль и откликайся на смены в соседних ресторанах.
+                Войди по ссылке из email, заполни профиль и откликайся на смены в соседних ресторанах.
               </p>
 
               {hotCount > 0 && (
@@ -152,18 +151,12 @@ export default async function Home(props: { searchParams: SearchParams }) {
           <AuthGate />
         </div>
 
-        <div className="mb-6">
-          <MyApplications />
-        </div>
-
         <div className="mb-6 rounded-2xl border bg-white p-5 shadow-sm">
           <h2 className="mb-4 text-lg font-semibold">Фильтры</h2>
 
           <form className="grid gap-4 md:grid-cols-4">
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">
-                Должность
-              </label>
+              <label className="mb-1 block text-sm font-medium text-gray-700">Должность</label>
               <select
                 name="position"
                 defaultValue={selectedPosition}
@@ -179,9 +172,7 @@ export default async function Home(props: { searchParams: SearchParams }) {
             </div>
 
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">
-                Дата
-              </label>
+              <label className="mb-1 block text-sm font-medium text-gray-700">Дата</label>
               <select
                 name="date"
                 defaultValue={selectedDate}
@@ -197,9 +188,7 @@ export default async function Home(props: { searchParams: SearchParams }) {
             </div>
 
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">
-                Метро
-              </label>
+              <label className="mb-1 block text-sm font-medium text-gray-700">Метро</label>
               <select
                 name="metro"
                 defaultValue={selectedMetro}

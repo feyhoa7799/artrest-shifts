@@ -18,6 +18,10 @@ type MyApplication = {
   overnight: boolean;
 };
 
+type MyApplicationsProps = {
+  embedded?: boolean;
+};
+
 function statusLabel(status: string) {
   if (status === 'approved') return 'Подтвержден';
   if (status === 'rejected') return 'Отклонен';
@@ -30,7 +34,7 @@ function statusClass(status: string) {
   return 'bg-yellow-100 text-yellow-700';
 }
 
-export default function MyApplications() {
+export default function MyApplications({ embedded = false }: MyApplicationsProps) {
   const [items, setItems] = useState<MyApplication[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -52,6 +56,7 @@ export default function MyApplications() {
         headers: {
           Authorization: `Bearer ${session.access_token}`,
         },
+        cache: 'no-store',
       });
 
       const data = await res.json();
@@ -77,8 +82,8 @@ export default function MyApplications() {
     };
   }, []);
 
-  return (
-    <div className="rounded-2xl border bg-white p-5 shadow-sm">
+  const body = (
+    <>
       <div className="mb-4 flex items-center justify-between gap-3">
         <h2 className="text-xl font-semibold">Мои отклики</h2>
         <span className="rounded-full bg-gray-100 px-3 py-1 text-sm text-gray-700">
@@ -89,9 +94,7 @@ export default function MyApplications() {
       {loading ? (
         <p className="text-sm text-gray-500">Загрузка откликов...</p>
       ) : items.length === 0 ? (
-        <p className="text-sm text-gray-500">
-          Пока нет откликов или вы еще не вошли в аккаунт.
-        </p>
+        <p className="text-sm text-gray-500">Вы еще не отправляли отклики.</p>
       ) : (
         <div className="space-y-4">
           {items.map((item) => (
@@ -143,6 +146,12 @@ export default function MyApplications() {
           ))}
         </div>
       )}
-    </div>
+    </>
   );
+
+  if (embedded) {
+    return <div className="rounded-2xl border bg-white p-5 shadow-sm">{body}</div>;
+  }
+
+  return <div className="rounded-2xl border bg-white p-5 shadow-sm">{body}</div>;
 }
