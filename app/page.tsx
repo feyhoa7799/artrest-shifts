@@ -128,7 +128,7 @@ export default async function Home(props: { searchParams: SearchParams }) {
                 АртРест × ROSTIC’S
               </p>
               <h1 className="mb-3 text-3xl font-bold md:text-5xl">
-                Подработки рядом с домом
+                Подработки
               </h1>
               <p className="max-w-2xl text-white/90">
                 Войди по ссылке из email, заполни профиль и откликайся на смены в соседних ресторанах.
