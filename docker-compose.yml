@@ -12,9 +12,9 @@ services:
       - .env.production
     environment:
       NODE_ENV: production
-      PORT: 434
+      PORT: 443
       HOSTNAME: 0.0.0.0
       ADMIN_USERNAME: ${ADMIN_USERNAME}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
     ports:
-      - "8080:434"
+      - "8080:443"

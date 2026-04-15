@@ -25,13 +25,13 @@ FROM node:24-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
-ENV PORT=434
+ENV PORT=443
 ENV HOSTNAME=0.0.0.0
 
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 
-EXPOSE 434
+EXPOSE 443
 
 CMD ["node", "server.js"]
