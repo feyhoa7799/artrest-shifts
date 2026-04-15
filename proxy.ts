@@ -2,16 +2,21 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 function unauthorized() {
-  return new Response('Auth required', {
+  return new NextResponse('Auth required', {
     status: 401,
     headers: {
       'WWW-Authenticate': 'Basic realm="Admin"',
       'Cache-Control': 'no-store',
+      'Content-Type': 'text/plain; charset=utf-8',
+      'X-Content-Type-Options': 'nosniff',
+      
+      'Content-Security-Policy': 'upgrade-insecure-requests',
+      'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
     },
   });
 }
 
-export function proxy(req: NextRequest) {
+export function middleware(req: NextRequest) {
   if (!req.nextUrl.pathname.startsWith('/admin')) {
     return NextResponse.next();
   }
@@ -20,16 +25,17 @@ export function proxy(req: NextRequest) {
   const expectedPassword = process.env.ADMIN_PASSWORD;
 
   if (!expectedPassword) {
-    return new Response('Admin auth is not configured', {
+    return new NextResponse('Admin auth is not configured', {
       status: 503,
       headers: {
         'Cache-Control': 'no-store',
+        'Content-Security-Policy': 'upgrade-insecure-requests',
+        'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
       },
     });
   }
 
   const auth = req.headers.get('authorization');
-
   if (!auth || !auth.startsWith('Basic ')) {
     return unauthorized();
   }
