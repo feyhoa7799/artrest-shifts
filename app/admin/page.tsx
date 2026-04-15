@@ -25,7 +25,7 @@ type Slot = {
   time_from: string;
   time_to: string;
   position: string;
-  hourly_rate: number;
+  hourly_rate: number | null;
   comment: string | null;
   status: 'open' | 'pending' | 'closed' | 'assigned';
   is_hot: boolean | null;
@@ -99,10 +99,7 @@ function buildApplicationSearch(
   ].join(' ');
 }
 
-function buildEmployeeSearch(
-  employee: EmployeeProfile,
-  restaurant?: Restaurant | null
-) {
+function buildEmployeeSearch(employee: EmployeeProfile, restaurant?: Restaurant | null) {
   return [
     employee.email,
     employee.full_name,
@@ -131,7 +128,9 @@ export default async function AdminPage(props: { searchParams: SearchParams }) {
 
   const { data: slotsData } = await supabaseAdmin
     .from('slots')
-    .select('id, restaurant_id, work_date, time_from, time_to, position, hourly_rate, comment, status, is_hot, created_at')
+    .select(
+      'id, restaurant_id, work_date, time_from, time_to, position, hourly_rate, comment, status, is_hot, created_at'
+    )
     .order('work_date', { ascending: false });
 
   const { data: applicationsData } = await supabaseAdmin
@@ -159,7 +158,7 @@ export default async function AdminPage(props: { searchParams: SearchParams }) {
   const slotMap = new Map<number, Slot>();
   slots.forEach((slot) => slotMap.set(slot.id, slot));
 
-  const approvedAppBySlotId: Record<number, Application | undefined> = {};
+  const approvedAppBySlotId: Record<number, Application> = {};
   for (const app of applications) {
     if (app.status === 'approved' && !approvedAppBySlotId[app.slot_id]) {
       approvedAppBySlotId[app.slot_id] = app;
@@ -196,9 +195,11 @@ export default async function AdminPage(props: { searchParams: SearchParams }) {
 
   const pendingApplications = applications.filter((app) => {
     const slot = slotMap.get(app.slot_id);
+
     if (!slot) return false;
     if (app.status && app.status !== 'pending') return false;
     if (!filterByRestaurantAndDate(slot)) return false;
+
     if (!q) return true;
 
     return matchesText(

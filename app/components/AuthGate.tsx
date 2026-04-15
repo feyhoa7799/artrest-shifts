@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { User } from '@supabase/supabase-js';
+import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
-import MyApplications from '@/app/components/MyApplications';
 
 const ROLES = [
   'Член команды',
@@ -35,6 +35,10 @@ type Stats = {
   totalApproved: number;
   totalHours: string;
   uniqueRestaurants: number;
+  totalFinished: number;
+  totalPending: number;
+  totalRejected: number;
+  totalActive: number;
 };
 
 const emptyProfile: Profile = {
@@ -104,6 +108,7 @@ export default function AuthGate() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [profileEditorOpen, setProfileEditorOpen] = useState(true);
   const [notice, setNotice] = useState('');
+  const [consentChecked, setConsentChecked] = useState(false);
 
   const mountedRef = useRef(false);
   const requestIdRef = useRef(0);
@@ -112,7 +117,6 @@ export default function AuthGate() {
   const phoneIsValid = useMemo(() => /^\+7\d{10}$/.test(profile.phone || ''), [profile.phone]);
   const currentProfileKey = useMemo(() => profileFingerprint(profile), [profile]);
   const profileDirty = currentProfileKey !== savedProfileKey;
-
   const profileReady =
     !!user &&
     !!profile.full_name &&
@@ -155,6 +159,20 @@ export default function AuthGate() {
     } catch {
       return null;
     }
+  }
+
+  async function saveConsent(accessToken: string) {
+    await fetch('/api/privacy-consent', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        accepted: true,
+        policy_version: '2025-09-01',
+      }),
+    });
   }
 
   async function loadStats(accessToken?: string | null) {
@@ -268,7 +286,10 @@ export default function AuthGate() {
       setRestaurants((restaurantData || []) as Restaurant[]);
 
       if (sessionUser) {
-        await Promise.allSettled([loadProfile(accessToken, sessionUser), loadStats(accessToken)]);
+        await Promise.allSettled([
+          loadProfile(accessToken, sessionUser),
+          loadStats(accessToken),
+        ]);
       } else {
         setProfile(emptyProfile);
         setSavedProfileKey(profileFingerprint(emptyProfile));
@@ -294,6 +315,10 @@ export default function AuthGate() {
 
   useEffect(() => {
     mountedRef.current = true;
+
+    const storedConsent = window.localStorage.getItem('privacy-consent-accepted');
+    setConsentChecked(storedConsent === 'true');
+
     loadInitial();
 
     const {
@@ -303,19 +328,29 @@ export default function AuthGate() {
         setAuthStep('email');
         setCode('');
         setEmailSentTo('');
-        showNotice('Вход выполнен. Личный кабинет обновлен.');
+        showNotice('Вход выполнен. Личный кабинет обновлён.');
       }
+
       loadInitial();
     });
 
     return () => {
       mountedRef.current = false;
-      if (noticeTimeoutRef.current) window.clearTimeout(noticeTimeoutRef.current);
+
+      if (noticeTimeoutRef.current) {
+        window.clearTimeout(noticeTimeoutRef.current);
+      }
+
       subscription.unsubscribe();
     };
   }, []);
 
   async function sendCode() {
+    if (!consentChecked) {
+      alert('Подтвердите согласие на обработку персональных данных');
+      return;
+    }
+
     if (!email.trim()) {
       alert('Введите email');
       return;
@@ -345,6 +380,11 @@ export default function AuthGate() {
   }
 
   async function verifyCode() {
+    if (!consentChecked) {
+      alert('Подтвердите согласие на обработку персональных данных');
+      return;
+    }
+
     if (!email.trim() || !code.trim()) {
       alert('Введите email и код');
       return;
@@ -364,6 +404,13 @@ export default function AuthGate() {
         return;
       }
 
+      const accessToken = await getAccessToken();
+
+      if (accessToken) {
+        await saveConsent(accessToken);
+      }
+
+      window.localStorage.setItem('privacy-consent-accepted', 'true');
       setCode('');
       await loadInitial();
     } finally {
@@ -450,7 +497,7 @@ export default function AuthGate() {
 
       setProfileEditorOpen(false);
       await loadStats(accessToken);
-      showNotice('Профиль сохранен. Личный кабинет обновлен.');
+      showNotice('Профиль сохранён. Личный кабинет обновлён.');
     } catch {
       alert('Ошибка сети при сохранении профиля');
     } finally {
@@ -473,76 +520,111 @@ export default function AuthGate() {
 
   if (loading || !profileLoaded) {
     return (
-      <div className="rounded-2xl border bg-white p-5 shadow-sm">
-        <p className="text-sm text-gray-500">Загрузка авторизации...</p>
+      <div className="rounded-2xl border bg-white p-6 shadow-sm">
+        Загрузка авторизации...
       </div>
     );
   }
 
   if (!user) {
     return (
-      <div className="rounded-2xl border bg-white p-5 shadow-sm">
-        <div className="mb-4">
-          <h2 className="text-xl font-semibold">Вход сотрудника</h2>
-          <p className="mt-1 text-sm text-gray-500">
-            Введите email, получите код и подтвердите вход.
-          </p>
-        </div>
+      <div className="rounded-2xl border bg-white p-6 shadow-sm">
+        <h2 className="mb-2 text-2xl font-semibold">Вход сотрудника</h2>
+        <p className="mb-5 text-sm text-gray-600">
+          Введите email, получите код и подтвердите вход.
+        </p>
 
         {notice && (
-          <div className="mb-4 rounded-lg bg-green-50 p-3 text-sm text-green-800">{notice}</div>
+          <div className="mb-4 rounded-xl bg-green-50 p-4 text-sm text-green-700">
+            {notice}
+          </div>
         )}
+
+        <div className="mb-5 rounded-2xl border bg-gray-50 p-4">
+          <label className="flex items-start gap-3 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              checked={consentChecked}
+              onChange={(e) => {
+                const checked = e.target.checked;
+                setConsentChecked(checked);
+
+                if (checked) {
+                  window.localStorage.setItem('privacy-consent-accepted', 'true');
+                } else {
+                  window.localStorage.removeItem('privacy-consent-accepted');
+                }
+              }}
+              className="mt-1 h-4 w-4 rounded border-gray-300"
+            />
+            <span>
+              Я соглашаюсь на обработку персональных данных и ознакомлен(а) с{' '}
+              <Link href="/privacy" className="text-red-600 hover:underline">
+                политикой обработки персональных данных
+              </Link>
+              .
+            </span>
+          </label>
+        </div>
 
         {authStep === 'email' ? (
           <div className="space-y-3">
             <input
               type="email"
-              placeholder="Email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              placeholder="Введите рабочий email"
               className="w-full rounded-lg border p-3"
             />
+
             <button
+              type="button"
               onClick={sendCode}
-              disabled={sendingCode}
-              className="rounded-lg bg-red-500 px-4 py-2 text-white hover:bg-red-600 disabled:opacity-60"
+              disabled={!consentChecked || sendingCode}
+              className="rounded-lg bg-red-500 px-4 py-3 text-white hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {sendingCode ? 'Отправляю код...' : 'Получить код на email'}
             </button>
           </div>
         ) : (
           <div className="space-y-3">
-            <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700">
-              Код отправлен на <span className="font-semibold">{emailSentTo || email}</span>
+            <div className="rounded-xl bg-gray-50 p-4 text-sm text-gray-600">
+              Код отправлен на {emailSentTo || email}
             </div>
+
             <input
               type="email"
-              placeholder="Email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              placeholder="Email"
               className="w-full rounded-lg border p-3"
             />
+
             <input
               type="text"
-              placeholder="Код из письма"
               value={code}
               onChange={(e) => setCode(e.target.value.replace(/\s/g, ''))}
+              placeholder="Код из письма"
               className="w-full rounded-lg border p-3"
             />
+
             <div className="flex flex-wrap gap-2">
               <button
+                type="button"
                 onClick={verifyCode}
-                disabled={verifyingCode}
-                className="rounded-lg bg-red-500 px-4 py-2 text-white hover:bg-red-600 disabled:opacity-60"
+                disabled={!consentChecked || verifyingCode}
+                className="rounded-lg bg-red-500 px-4 py-3 text-white hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {verifyingCode ? 'Проверяю...' : 'Войти'}
               </button>
+
               <button
+                type="button"
                 onClick={() => {
                   setAuthStep('email');
                   setCode('');
                 }}
-                className="rounded-lg border px-4 py-2 text-gray-700 hover:bg-gray-50"
+                className="rounded-lg border px-4 py-3 text-gray-700 hover:bg-gray-50"
               >
                 Назад
               </button>
@@ -554,173 +636,208 @@ export default function AuthGate() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="rounded-2xl border bg-white p-5 shadow-sm">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="text-xl font-semibold">Личный кабинет сотрудника</h2>
-            <p className="text-sm text-gray-500">{user.email}</p>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => setProfileEditorOpen((prev) => !prev)}
-              className="rounded-lg border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-            >
-              {profileEditorOpen ? 'Свернуть профиль' : 'Редактировать профиль'}
-            </button>
-            <button
-              onClick={logout}
-              className="rounded-lg border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-            >
-              Выйти
-            </button>
-          </div>
+    <div className="rounded-2xl border bg-white p-6 shadow-sm">
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-2xl font-semibold">Личный кабинет сотрудника</h2>
+          <p className="mt-1 text-sm text-gray-600">{user.email}</p>
         </div>
 
-        {notice && (
-          <div className="mb-4 rounded-lg bg-green-50 p-3 text-sm text-green-800">{notice}</div>
-        )}
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href="/my-applications"
+            className="rounded-lg bg-red-500 px-4 py-2 text-sm text-white hover:bg-red-600"
+          >
+            Мои отклики
+          </Link>
 
-        {profile.is_blocked && (
-          <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">
-            Ваш профиль заблокирован. Обратитесь к HR BP.
-          </div>
-        )}
+          <button
+            type="button"
+            onClick={() => setProfileEditorOpen((prev) => !prev)}
+            className="rounded-lg border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+          >
+            {profileEditorOpen ? 'Свернуть профиль' : 'Редактировать профиль'}
+          </button>
 
-        {!profileReady && !profile.is_blocked && (
-          <div className="mb-4 rounded-lg bg-yellow-50 p-3 text-sm text-yellow-800">
-            Заполни профиль до конца. Без этого нельзя отправлять отклики.
-          </div>
-        )}
-
-        {!profileEditorOpen ? (
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-xl bg-gray-50 p-4">
-              <p className="text-xs uppercase tracking-wide text-gray-500">ФИО</p>
-              <p className="mt-2 font-medium text-gray-900">{profile.full_name || 'Не заполнено'}</p>
-            </div>
-            <div className="rounded-xl bg-gray-50 p-4">
-              <p className="text-xs uppercase tracking-wide text-gray-500">Телефон</p>
-              <p className="mt-2 font-medium text-gray-900">{profile.phone || 'Не заполнено'}</p>
-            </div>
-            <div className="rounded-xl bg-gray-50 p-4">
-              <p className="text-xs uppercase tracking-wide text-gray-500">Должность</p>
-              <p className="mt-2 font-medium text-gray-900">{profile.role || 'Не заполнено'}</p>
-            </div>
-            <div className="rounded-xl bg-gray-50 p-4">
-              <p className="text-xs uppercase tracking-wide text-gray-500">Домашний ресторан</p>
-              <p className="mt-2 font-medium text-gray-900">
-                {homeRestaurantName || 'Не заполнено'}
-              </p>
-            </div>
-          </div>
-        ) : (
-          <>
-            <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">ФИО</label>
-                <input
-                  value={profile.full_name}
-                  onChange={(e) => setProfile((prev) => ({ ...prev, full_name: e.target.value }))}
-                  className="w-full rounded-lg border p-3"
-                />
-              </div>
-
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">Телефон РФ</label>
-                <input
-                  placeholder="+7XXXXXXXXXX"
-                  value={profile.phone}
-                  onChange={(e) =>
-                    setProfile((prev) => ({
-                      ...prev,
-                      phone: normalizeRussianPhoneInput(e.target.value),
-                    }))
-                  }
-                  className="w-full rounded-lg border p-3"
-                />
-                <p className="mt-1 text-xs text-gray-500">Формат: +7 и 10 цифр</p>
-              </div>
-
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">Должность</label>
-                <select
-                  value={profile.role}
-                  onChange={(e) => setProfile((prev) => ({ ...prev, role: e.target.value }))}
-                  className="w-full rounded-lg border p-3"
-                >
-                  <option value="">Выберите должность</option>
-                  {ROLES.map((role) => (
-                    <option key={role} value={role}>
-                      {role}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">
-                  Домашний ресторан
-                </label>
-                <select
-                  value={profile.home_restaurant_id}
-                  onChange={(e) =>
-                    setProfile((prev) => ({
-                      ...prev,
-                      home_restaurant_id: Number(e.target.value),
-                    }))
-                  }
-                  className="w-full rounded-lg border p-3"
-                >
-                  <option value="">Выберите ресторан</option>
-                  {restaurants.map((restaurant) => (
-                    <option key={restaurant.id} value={restaurant.id}>
-                      {restaurant.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="mt-4 flex flex-wrap gap-2">
-              <button
-                onClick={saveProfile}
-                disabled={saving || profile.is_blocked || !profileDirty}
-                className="rounded-lg bg-red-500 px-4 py-2 text-white hover:bg-red-600 disabled:opacity-60"
-              >
-                {saving ? 'Сохраняю...' : profileDirty ? 'Сохранить профиль' : 'Сохранено'}
-              </button>
-
-              <button
-                onClick={() => setProfileEditorOpen(false)}
-                className="rounded-lg border px-4 py-2 text-gray-700 hover:bg-gray-50"
-              >
-                Свернуть
-              </button>
-            </div>
-          </>
-        )}
-
-        {stats && (
-          <div className="mt-5 grid gap-3 md:grid-cols-3">
-            <div className="rounded-xl bg-gray-50 p-4">
-              <p className="text-sm text-gray-500">Подтвержденных смен</p>
-              <p className="text-2xl font-semibold">{stats.totalApproved}</p>
-            </div>
-            <div className="rounded-xl bg-gray-50 p-4">
-              <p className="text-sm text-gray-500">Отработано часов</p>
-              <p className="text-2xl font-semibold">{stats.totalHours}</p>
-            </div>
-            <div className="rounded-xl bg-gray-50 p-4">
-              <p className="text-sm text-gray-500">Ресторанов посещено</p>
-              <p className="text-2xl font-semibold">{stats.uniqueRestaurants}</p>
-            </div>
-          </div>
-        )}
+          <button
+            type="button"
+            onClick={logout}
+            className="rounded-lg border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+          >
+            Выйти
+          </button>
+        </div>
       </div>
 
-      <MyApplications embedded />
+      {notice && (
+        <div className="mb-4 rounded-xl bg-green-50 p-4 text-sm text-green-700">
+          {notice}
+        </div>
+      )}
+
+      {profile.is_blocked && (
+        <div className="mb-4 rounded-xl bg-red-50 p-4 text-sm text-red-700">
+          Ваш профиль заблокирован. Обратитесь в HR.
+        </div>
+      )}
+
+      {!profileReady && !profile.is_blocked && (
+        <div className="mb-4 rounded-xl bg-yellow-50 p-4 text-sm text-yellow-700">
+          Заполните профиль до конца. Без этого нельзя отправлять отклики.
+        </div>
+      )}
+
+      {!profileEditorOpen ? (
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="rounded-xl bg-gray-50 p-4">
+            <div className="mb-1 text-sm text-gray-500">ФИО</div>
+            <div className="font-medium">{profile.full_name || 'Не заполнено'}</div>
+          </div>
+
+          <div className="rounded-xl bg-gray-50 p-4">
+            <div className="mb-1 text-sm text-gray-500">Телефон</div>
+            <div className="font-medium">{profile.phone || 'Не заполнено'}</div>
+          </div>
+
+          <div className="rounded-xl bg-gray-50 p-4">
+            <div className="mb-1 text-sm text-gray-500">Должность</div>
+            <div className="font-medium">{profile.role || 'Не заполнено'}</div>
+          </div>
+
+          <div className="rounded-xl bg-gray-50 p-4">
+            <div className="mb-1 text-sm text-gray-500">Домашний ресторан</div>
+            <div className="font-medium">{homeRestaurantName || 'Не заполнено'}</div>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">ФИО</label>
+              <input
+                value={profile.full_name}
+                onChange={(e) =>
+                  setProfile((prev) => ({ ...prev, full_name: e.target.value }))
+                }
+                className="w-full rounded-lg border p-3"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                Телефон РФ
+              </label>
+              <input
+                value={profile.phone}
+                onChange={(e) =>
+                  setProfile((prev) => ({
+                    ...prev,
+                    phone: normalizeRussianPhoneInput(e.target.value),
+                  }))
+                }
+                className="w-full rounded-lg border p-3"
+              />
+              <p className="mt-1 text-xs text-gray-500">Формат: +7 и 10 цифр</p>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                Должность
+              </label>
+              <select
+                value={profile.role}
+                onChange={(e) =>
+                  setProfile((prev) => ({ ...prev, role: e.target.value }))
+                }
+                className="w-full rounded-lg border p-3"
+              >
+                <option value="">Выберите должность</option>
+                {ROLES.map((role) => (
+                  <option key={role} value={role}>
+                    {role}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                Домашний ресторан
+              </label>
+              <select
+                value={profile.home_restaurant_id}
+                onChange={(e) =>
+                  setProfile((prev) => ({
+                    ...prev,
+                    home_restaurant_id: Number(e.target.value),
+                  }))
+                }
+                className="w-full rounded-lg border p-3"
+              >
+                <option value="">Выберите ресторан</option>
+                {restaurants.map((restaurant) => (
+                  <option key={restaurant.id} value={restaurant.id}>
+                    {restaurant.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={saveProfile}
+              disabled={saving}
+              className="rounded-lg bg-red-500 px-4 py-3 text-white hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {saving ? 'Сохраняю...' : profileDirty ? 'Сохранить профиль' : 'Сохранено'}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setProfileEditorOpen(false)}
+              className="rounded-lg border px-4 py-3 text-gray-700 hover:bg-gray-50"
+            >
+              Свернуть
+            </button>
+          </div>
+        </>
+      )}
+
+      {stats && (
+        <div className="mt-6 grid gap-4 md:grid-cols-3 xl:grid-cols-6">
+          <div className="rounded-xl bg-gray-50 p-4">
+            <div className="text-sm text-gray-500">Подтверждённых смен</div>
+            <div className="mt-1 text-2xl font-semibold">{stats.totalApproved}</div>
+          </div>
+
+          <div className="rounded-xl bg-gray-50 p-4">
+            <div className="text-sm text-gray-500">Отработано часов</div>
+            <div className="mt-1 text-2xl font-semibold">{stats.totalHours}</div>
+          </div>
+
+          <div className="rounded-xl bg-gray-50 p-4">
+            <div className="text-sm text-gray-500">Ресторанов посещено</div>
+            <div className="mt-1 text-2xl font-semibold">{stats.uniqueRestaurants}</div>
+          </div>
+
+          <div className="rounded-xl bg-gray-50 p-4">
+            <div className="text-sm text-gray-500">В ожидании</div>
+            <div className="mt-1 text-2xl font-semibold">{stats.totalPending}</div>
+          </div>
+
+          <div className="rounded-xl bg-gray-50 p-4">
+            <div className="text-sm text-gray-500">Активные</div>
+            <div className="mt-1 text-2xl font-semibold">{stats.totalActive}</div>
+          </div>
+
+          <div className="rounded-xl bg-gray-50 p-4">
+            <div className="text-sm text-gray-500">Завершённые</div>
+            <div className="mt-1 text-2xl font-semibold">{stats.totalFinished}</div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

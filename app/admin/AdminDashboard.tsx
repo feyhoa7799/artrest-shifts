@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import Link from 'next/link';
 import {
   approveApplication,
   closeSlot,
@@ -11,7 +12,12 @@ import {
   toggleEmployeeBlock,
 } from './actions';
 import AdminRefreshButton from './AdminRefreshButton';
-import { getShiftMeta } from '@/lib/shift';
+import {
+  formatDateRu,
+  formatHours,
+  formatShiftTimeRange,
+  getShiftMeta,
+} from '@/lib/shift';
 
 type Restaurant = {
   id: number;
@@ -28,7 +34,7 @@ type Slot = {
   time_from: string;
   time_to: string;
   position: string;
-  hourly_rate: number;
+  hourly_rate: number | null;
   comment: string | null;
   status: 'open' | 'pending' | 'closed' | 'assigned';
   is_hot: boolean | null;
@@ -69,7 +75,7 @@ type Props = {
   closedSlots: Slot[];
   assignedSlots: Slot[];
   pendingApplications: Application[];
-  approvedAppBySlotId: Record<number, Application | undefined>;
+  approvedAppBySlotId: Record<number, Application>;
   editSlot: Slot | null;
   tab: string;
   q: string;
@@ -122,43 +128,11 @@ function getNowLocalTime() {
 
 function formatDateTime(value: string) {
   const date = new Date(value);
+
   return new Intl.DateTimeFormat('ru-RU', {
     dateStyle: 'short',
     timeStyle: 'short',
   }).format(date);
-}
-
-function pluralRu(value: number, one: string, few: string, many: string) {
-  const mod10 = value % 10;
-  const mod100 = value % 100;
-  if (mod10 === 1 && mod100 !== 11) return one;
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return few;
-  return many;
-}
-
-function formatRelative(value: string) {
-  const date = new Date(value);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-
-  if (diffMs < 5 * 60 * 1000) return 'Недавно';
-
-  const diffMinutes = Math.floor(diffMs / (60 * 1000));
-  if (diffMinutes < 60) {
-    return `${diffMinutes} ${pluralRu(diffMinutes, 'минуту', 'минуты', 'минут')} назад`;
-  }
-
-  const diffHours = Math.floor(diffMinutes / 60);
-  if (diffHours < 24) {
-    return `${diffHours} ${pluralRu(diffHours, 'час', 'часа', 'часов')} назад`;
-  }
-
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffDays < 7) {
-    return `${diffDays} ${pluralRu(diffDays, 'день', 'дня', 'дней')} назад`;
-  }
-
-  return new Intl.DateTimeFormat('ru-RU', { dateStyle: 'medium' }).format(date);
 }
 
 function buildAdminHref(params: {
@@ -215,20 +189,19 @@ export default function AdminDashboard({
   const nowTimeStr = getNowLocalTime();
 
   const [slotForm, setSlotForm] = useState<SlotFormState>(emptySlotForm);
-
   const [slotQuickSearch, setSlotQuickSearch] = useState('');
   const [slotQuickRestaurant, setSlotQuickRestaurant] = useState('');
   const [slotQuickPosition, setSlotQuickPosition] = useState('');
   const [slotQuickHotOnly, setSlotQuickHotOnly] = useState(false);
-
   const [applicationQuickSearch, setApplicationQuickSearch] = useState('');
   const [applicationQuickRole, setApplicationQuickRole] = useState('');
   const [applicationQuickRestaurant, setApplicationQuickRestaurant] = useState('');
-
   const [employeeQuickSearch, setEmployeeQuickSearch] = useState('');
   const [employeeQuickRole, setEmployeeQuickRole] = useState('');
   const [employeeQuickRestaurant, setEmployeeQuickRestaurant] = useState('');
-  const [employeeQuickStatus, setEmployeeQuickStatus] = useState<'all' | 'active' | 'blocked'>('all');
+  const [employeeQuickStatus, setEmployeeQuickStatus] = useState<'all' | 'active' | 'blocked'>(
+    'all'
+  );
 
   useEffect(() => {
     if (editSlot) {
@@ -239,7 +212,7 @@ export default function AdminDashboard({
         time_from: editSlot.time_from.slice(0, 5),
         time_to: editSlot.time_to.slice(0, 5),
         position: editSlot.position,
-        hourly_rate: String(editSlot.hourly_rate),
+        hourly_rate: editSlot.hourly_rate ? String(editSlot.hourly_rate) : '',
         comment: editSlot.comment || '',
         is_hot: Boolean(editSlot.is_hot),
         status: editSlot.status,
@@ -264,20 +237,25 @@ export default function AdminDashboard({
 
   const slotPositionOptions = useMemo(() => {
     const positions = new Set<string>();
+
     [...openSlots, ...closedSlots, ...assignedSlots].forEach((slot) => {
       if (slot.position) positions.add(slot.position);
     });
+
     return [...positions].sort((a, b) => a.localeCompare(b, 'ru'));
   }, [openSlots, closedSlots, assignedSlots]);
 
   const employeeRoleOptions = useMemo(() => {
     const roles = new Set<string>();
+
     employees.forEach((employee) => {
       if (employee.role) roles.add(employee.role);
     });
+
     pendingApplications.forEach((app) => {
       if (app.employee_role) roles.add(app.employee_role);
     });
+
     return [...roles].sort((a, b) => a.localeCompare(b, 'ru'));
   }, [employees, pendingApplications]);
 
@@ -307,9 +285,20 @@ export default function AdminDashboard({
       );
     });
 
-  const openSlotsView = useMemo(() => filterSlotsForView(openSlots), [openSlots, slotQuickSearch, slotQuickRestaurant, slotQuickPosition, slotQuickHotOnly]);
-  const closedSlotsView = useMemo(() => filterSlotsForView(closedSlots), [closedSlots, slotQuickSearch, slotQuickRestaurant, slotQuickPosition, slotQuickHotOnly]);
-  const assignedSlotsView = useMemo(() => filterSlotsForView(assignedSlots), [assignedSlots, slotQuickSearch, slotQuickRestaurant, slotQuickPosition, slotQuickHotOnly]);
+  const openSlotsView = useMemo(
+    () => filterSlotsForView(openSlots),
+    [openSlots, slotQuickSearch, slotQuickRestaurant, slotQuickPosition, slotQuickHotOnly]
+  );
+
+  const closedSlotsView = useMemo(
+    () => filterSlotsForView(closedSlots),
+    [closedSlots, slotQuickSearch, slotQuickRestaurant, slotQuickPosition, slotQuickHotOnly]
+  );
+
+  const assignedSlotsView = useMemo(
+    () => filterSlotsForView(assignedSlots),
+    [assignedSlots, slotQuickSearch, slotQuickRestaurant, slotQuickPosition, slotQuickHotOnly]
+  );
 
   const pendingApplicationsView = useMemo(
     () =>
@@ -318,7 +307,10 @@ export default function AdminDashboard({
         const workRestaurant = getRestaurantById(slot?.restaurant_id);
 
         if (applicationQuickRole && app.employee_role !== applicationQuickRole) return false;
-        if (applicationQuickRestaurant && String(slot?.restaurant_id || '') !== applicationQuickRestaurant) {
+        if (
+          applicationQuickRestaurant &&
+          String(slot?.restaurant_id || '') !== applicationQuickRestaurant
+        ) {
           return false;
         }
 
@@ -350,9 +342,14 @@ export default function AdminDashboard({
         const homeRestaurant = getRestaurantById(employee.home_restaurant_id);
 
         if (employeeQuickRole && employee.role !== employeeQuickRole) return false;
-        if (employeeQuickRestaurant && String(employee.home_restaurant_id) !== employeeQuickRestaurant) {
+
+        if (
+          employeeQuickRestaurant &&
+          String(employee.home_restaurant_id) !== employeeQuickRestaurant
+        ) {
           return false;
         }
+
         if (employeeQuickStatus === 'active' && employee.is_blocked) return false;
         if (employeeQuickStatus === 'blocked' && !employee.is_blocked) return false;
 
@@ -375,9 +372,7 @@ export default function AdminDashboard({
   );
 
   const renderCreated = (createdAt: string) => (
-    <p className="mt-2 text-xs text-gray-500">
-      Создано: {formatDateTime(createdAt)} • {formatRelative(createdAt)}
-    </p>
+    <p className="mt-2 text-xs text-gray-500">Создано: {formatDateTime(createdAt)}</p>
   );
 
   const renderSlotCard = (slot: Slot, extraActions?: ReactNode, extraBlock?: ReactNode) => {
@@ -385,19 +380,22 @@ export default function AdminDashboard({
     const meta = getShiftMeta(slot.time_from, slot.time_to);
 
     return (
-      <div key={slot.id} className="rounded-xl border p-4">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+      <div key={slot.id} className="rounded-2xl border bg-white p-5 shadow-sm">
+        <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h3 className="font-semibold">{restaurant?.name || 'Ресторан не найден'}</h3>
-            <p className="text-sm text-gray-500">{restaurant?.address || ''}</p>
+            <h3 className="text-lg font-semibold">
+              {restaurant?.name || 'Ресторан не найден'}
+            </h3>
+            <p className="text-sm text-gray-600">{restaurant?.address || ''}</p>
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {slot.is_hot && (
               <span className="rounded-full bg-red-100 px-3 py-1 text-sm font-medium text-red-700">
-                🔥 Горячая
+                Горячая
               </span>
             )}
+
             <span className="rounded-full bg-gray-100 px-3 py-1 text-sm text-gray-700">
               {slot.status}
             </span>
@@ -405,33 +403,24 @@ export default function AdminDashboard({
         </div>
 
         <div className="grid gap-2 text-sm text-gray-700 md:grid-cols-2">
+          <p>Дата: {formatDateRu(slot.work_date)}</p>
+          <p>Должность: {slot.position}</p>
+          <p>Время: {formatShiftTimeRange(slot.time_from, slot.time_to, meta.overnight)}</p>
+          <p>Длительность: {formatHours(meta.hours)}</p>
           <p>
-            <span className="font-medium">Дата:</span> {slot.work_date}
+            Оплата:{' '}
+            {slot.hourly_rate ? `${slot.hourly_rate} ₽/час` : 'Не указана'}
           </p>
-          <p>
-            <span className="font-medium">Должность:</span> {slot.position}
-          </p>
-          <p>
-            <span className="font-medium">Время:</span> {slot.time_from} – {slot.time_to}
-            {meta.overnight ? ' (следующий день)' : ''}
-          </p>
-          <p>
-            <span className="font-medium">Оплата:</span> {slot.hourly_rate} ₽/час
-          </p>
-          <p>
-            <span className="font-medium">Длительность:</span> {meta.hours ? `${meta.hours} ч` : '—'}
-          </p>
-          {restaurant?.metro && (
-            <p>
-              <span className="font-medium">Метро:</span> {restaurant.metro}
-            </p>
-          )}
+          {restaurant?.metro && <p>Метро: {restaurant.metro}</p>}
         </div>
 
-        {slot.comment && <p className="mt-2 text-sm text-gray-500">{slot.comment}</p>}
+        {slot.comment && (
+          <div className="mt-3 rounded-xl bg-gray-50 p-4 text-sm text-gray-700">
+            {slot.comment}
+          </div>
+        )}
 
         {renderCreated(slot.created_at)}
-
         {extraBlock}
 
         {extraActions && <div className="mt-4 flex flex-wrap gap-2">{extraActions}</div>}
@@ -440,9 +429,9 @@ export default function AdminDashboard({
   };
 
   const slotFilters = (
-    <div className="mb-4 rounded-xl border bg-gray-50 p-4">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <p className="font-medium text-gray-800">Фильтры внутри вкладки</p>
+    <div className="rounded-2xl border bg-white p-4 shadow-sm">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h3 className="font-semibold">Фильтры внутри вкладки</h3>
         <button
           type="button"
           onClick={() => {
@@ -457,8 +446,8 @@ export default function AdminDashboard({
         </button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <FilterField label="Быстрый поиск">
+      <div className="grid gap-3 md:grid-cols-4">
+        <FilterField label="Поиск">
           <input
             value={slotQuickSearch}
             onChange={(e) => setSlotQuickSearch(e.target.value)}
@@ -497,8 +486,8 @@ export default function AdminDashboard({
           </select>
         </FilterField>
 
-        <div className="flex items-end">
-          <label className="flex w-full items-center gap-3 rounded-lg border bg-white p-3 text-sm font-medium text-gray-700">
+        <FilterField label=" ">
+          <label className="flex h-full items-center gap-2 rounded-lg border p-3 text-sm text-gray-700">
             <input
               type="checkbox"
               checked={slotQuickHotOnly}
@@ -506,15 +495,15 @@ export default function AdminDashboard({
             />
             Только горячие смены
           </label>
-        </div>
+        </FilterField>
       </div>
     </div>
   );
 
   const applicationFilters = (
-    <div className="mb-4 rounded-xl border bg-gray-50 p-4">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <p className="font-medium text-gray-800">Фильтры внутри вкладки</p>
+    <div className="rounded-2xl border bg-white p-4 shadow-sm">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h3 className="font-semibold">Фильтры внутри вкладки</h3>
         <button
           type="button"
           onClick={() => {
@@ -528,8 +517,8 @@ export default function AdminDashboard({
         </button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <FilterField label="Быстрый поиск">
+      <div className="grid gap-3 md:grid-cols-3">
+        <FilterField label="Поиск">
           <input
             value={applicationQuickSearch}
             onChange={(e) => setApplicationQuickSearch(e.target.value)}
@@ -538,7 +527,7 @@ export default function AdminDashboard({
           />
         </FilterField>
 
-        <FilterField label="Роль сотрудника">
+        <FilterField label="Роль">
           <select
             value={applicationQuickRole}
             onChange={(e) => setApplicationQuickRole(e.target.value)}
@@ -553,7 +542,7 @@ export default function AdminDashboard({
           </select>
         </FilterField>
 
-        <FilterField label="Ресторан подработки">
+        <FilterField label="Ресторан">
           <select
             value={applicationQuickRestaurant}
             onChange={(e) => setApplicationQuickRestaurant(e.target.value)}
@@ -572,9 +561,9 @@ export default function AdminDashboard({
   );
 
   const employeeFilters = (
-    <div className="mb-4 rounded-xl border bg-gray-50 p-4">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <p className="font-medium text-gray-800">Фильтры внутри вкладки</p>
+    <div className="rounded-2xl border bg-white p-4 shadow-sm">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h3 className="font-semibold">Фильтры внутри вкладки</h3>
         <button
           type="button"
           onClick={() => {
@@ -589,8 +578,8 @@ export default function AdminDashboard({
         </button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <FilterField label="Быстрый поиск">
+      <div className="grid gap-3 md:grid-cols-4">
+        <FilterField label="Поиск">
           <input
             value={employeeQuickSearch}
             onChange={(e) => setEmployeeQuickSearch(e.target.value)}
@@ -602,7 +591,9 @@ export default function AdminDashboard({
         <FilterField label="Статус">
           <select
             value={employeeQuickStatus}
-            onChange={(e) => setEmployeeQuickStatus(e.target.value as 'all' | 'active' | 'blocked')}
+            onChange={(e) =>
+              setEmployeeQuickStatus(e.target.value as 'all' | 'active' | 'blocked')
+            }
             className="w-full rounded-lg border p-3"
           >
             <option value="all">Все</option>
@@ -611,7 +602,7 @@ export default function AdminDashboard({
           </select>
         </FilterField>
 
-        <FilterField label="Должность">
+        <FilterField label="Роль">
           <select
             value={employeeQuickRole}
             onChange={(e) => setEmployeeQuickRole(e.target.value)}
@@ -626,7 +617,7 @@ export default function AdminDashboard({
           </select>
         </FilterField>
 
-        <FilterField label="Домашний ресторан">
+        <FilterField label="Ресторан">
           <select
             value={employeeQuickRestaurant}
             onChange={(e) => setEmployeeQuickRestaurant(e.target.value)}
@@ -644,67 +635,110 @@ export default function AdminDashboard({
     </div>
   );
 
+  const currentSlotsView =
+    tab === 'closed'
+      ? closedSlotsView
+      : tab === 'assigned'
+      ? assignedSlotsView
+      : openSlotsView;
+
   return (
-    <main className="min-h-screen bg-gray-50 p-6">
+    <main className="min-h-screen bg-[#fafafa] p-6">
       <div className="mx-auto max-w-7xl space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold">Админка смен</h1>
-            <p className="text-gray-600">Управление слотами, откликами, ресторанами и сотрудниками</p>
+            <p className="mt-2 text-gray-600">
+              Управление слотами, откликами, ресторанами и сотрудниками
+            </p>
           </div>
 
           <AdminRefreshButton />
         </div>
 
         {pendingApplications.length > 0 && (
-          <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-800 shadow-sm">
-            <span className="font-semibold">NEW!</span> Новые отклики ждут решения: {pendingApplications.length}
+          <div className="rounded-2xl border border-yellow-200 bg-yellow-50 p-4 text-yellow-800">
+            Новые отклики ждут решения: {pendingApplications.length}
           </div>
         )}
 
-        <div className="grid gap-4 md:grid-cols-4">
-          <div className="rounded-xl border bg-white p-4 shadow-sm">
-            <p className="text-sm text-gray-500">Открытые слоты</p>
-            <p className="text-2xl font-semibold">{openSlots.length}</p>
-          </div>
-          <div className="rounded-xl border bg-white p-4 shadow-sm">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-sm text-gray-500">Отклики</p>
-                <p className="text-2xl font-semibold">{pendingApplications.length}</p>
-              </div>
-              {pendingApplications.length > 0 && (
-                <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-700">
-                  NEW! {pendingApplications.length}
-                </span>
-              )}
+        <div className="rounded-2xl border bg-white p-5 shadow-sm">
+          <form className="grid gap-4 md:grid-cols-5">
+            <input type="hidden" name="tab" value={tab} />
+
+            <FilterField label="Общий поиск">
+              <input
+                name="q"
+                defaultValue={q}
+                placeholder="Ресторан, сотрудник, слот..."
+                className="w-full rounded-lg border p-3"
+              />
+            </FilterField>
+
+            <FilterField label="Ресторан">
+              <select
+                name="restaurant"
+                defaultValue={restaurantFilter}
+                className="w-full rounded-lg border p-3"
+              >
+                <option value="">Все</option>
+                {restaurantOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </FilterField>
+
+            <FilterField label="От">
+              <input
+                type="date"
+                name="from"
+                defaultValue={from}
+                className="w-full rounded-lg border p-3"
+              />
+            </FilterField>
+
+            <FilterField label="До">
+              <input
+                type="date"
+                name="to"
+                defaultValue={to}
+                className="w-full rounded-lg border p-3"
+              />
+            </FilterField>
+
+            <div className="flex items-end gap-2">
+              <button
+                type="submit"
+                className="rounded-lg bg-red-500 px-4 py-3 text-white hover:bg-red-600"
+              >
+                Применить
+              </button>
+
+              <Link
+                href={`/admin?tab=${tab}`}
+                className="rounded-lg border px-4 py-3 text-gray-700 hover:bg-gray-50"
+              >
+                Сбросить
+              </Link>
             </div>
-          </div>
-          <div className="rounded-xl border bg-white p-4 shadow-sm">
-            <p className="text-sm text-gray-500">Подтвержденные смены</p>
-            <p className="text-2xl font-semibold">{assignedSlots.length}</p>
-          </div>
-          <div className="rounded-xl border bg-white p-4 shadow-sm">
-            <p className="text-sm text-gray-500">Сотрудники</p>
-            <p className="text-2xl font-semibold">{employees.length}</p>
-          </div>
+          </form>
         </div>
 
-        <div className="grid gap-6 xl:grid-cols-[430px_minmax(0,1fr)]">
+        <div className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
           <div className="space-y-6">
-            <div className="rounded-xl border bg-white p-6 shadow-sm">
+            <div className="rounded-2xl border bg-white p-5 shadow-sm">
               <h2 className="mb-4 text-xl font-semibold">
-                {editSlot ? 'Редактировать слот' : 'Добавить слот'}
+                {slotForm.slot_id ? 'Редактировать слот' : 'Новый слот'}
               </h2>
 
               <form action={saveSlot} className="space-y-4">
                 <input type="hidden" name="slot_id" value={slotForm.slot_id} />
-                <input type="hidden" name="status" value={slotForm.status} />
 
                 <FilterField label="Ресторан">
                   <select
                     name="restaurant_id"
-                    required
                     value={slotForm.restaurant_id}
                     onChange={(e) =>
                       setSlotForm((prev) => ({ ...prev, restaurant_id: e.target.value }))
@@ -712,23 +746,12 @@ export default function AdminDashboard({
                     className="w-full rounded-lg border p-3"
                   >
                     <option value="">Выберите ресторан</option>
-                    {restaurants.map((restaurant) => (
-                      <option key={restaurant.id} value={restaurant.id}>
-                        {restaurant.name} — {restaurant.address}
+                    {restaurantOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
                       </option>
                     ))}
                   </select>
-                </FilterField>
-
-                <FilterField label="Должность">
-                  <input
-                    type="text"
-                    name="position"
-                    required
-                    value={slotForm.position}
-                    onChange={(e) => setSlotForm((prev) => ({ ...prev, position: e.target.value }))}
-                    className="w-full rounded-lg border p-3"
-                  />
                 </FilterField>
 
                 <div className="grid gap-4 md:grid-cols-2">
@@ -736,495 +759,448 @@ export default function AdminDashboard({
                     <input
                       type="date"
                       name="work_date"
-                      min={todayStr}
-                      required
                       value={slotForm.work_date}
-                      onChange={(e) => setSlotForm((prev) => ({ ...prev, work_date: e.target.value }))}
+                      min={todayStr}
+                      onChange={(e) =>
+                        setSlotForm((prev) => ({ ...prev, work_date: e.target.value }))
+                      }
                       className="w-full rounded-lg border p-3"
                     />
                   </FilterField>
 
-                  <FilterField label="Оплата в час">
+                  <FilterField label="Должность">
                     <input
-                      type="number"
-                      name="hourly_rate"
-                      min="0.01"
-                      step="0.01"
-                      required
-                      value={slotForm.hourly_rate}
-                      onChange={(e) => setSlotForm((prev) => ({ ...prev, hourly_rate: e.target.value }))}
+                      name="position"
+                      value={slotForm.position}
+                      onChange={(e) =>
+                        setSlotForm((prev) => ({ ...prev, position: e.target.value }))
+                      }
                       className="w-full rounded-lg border p-3"
                     />
                   </FilterField>
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-2">
-                  <FilterField label="Время с">
+                  <FilterField label="Начало">
                     <input
                       type="time"
                       name="time_from"
-                      min={currentMinTime}
-                      required
                       value={slotForm.time_from}
-                      onChange={(e) => setSlotForm((prev) => ({ ...prev, time_from: e.target.value }))}
+                      min={currentMinTime}
+                      onChange={(e) =>
+                        setSlotForm((prev) => ({ ...prev, time_from: e.target.value }))
+                      }
                       className="w-full rounded-lg border p-3"
                     />
                   </FilterField>
 
-                  <FilterField label="Время по">
+                  <FilterField label="Окончание">
                     <input
                       type="time"
                       name="time_to"
-                      required
                       value={slotForm.time_to}
-                      onChange={(e) => setSlotForm((prev) => ({ ...prev, time_to: e.target.value }))}
+                      onChange={(e) =>
+                        setSlotForm((prev) => ({ ...prev, time_to: e.target.value }))
+                      }
                       className="w-full rounded-lg border p-3"
                     />
                   </FilterField>
                 </div>
 
-                <div className="rounded-lg bg-gray-50 p-3 text-sm text-gray-700">
-                  {shiftMeta.hours ? (
-                    <>
-                      Общая длительность смены: <span className="font-semibold">{shiftMeta.hours} ч</span>
-                      {shiftMeta.overnight ? ' • переход через полночь' : ''}
-                    </>
-                  ) : (
-                    <>Укажи корректное время, чтобы увидеть длительность смены</>
-                  )}
-                </div>
-
-                <p className="text-xs text-gray-500">
-                  Если смена заканчивается на следующий день, поставь время окончания меньше времени начала.
-                  Пример: 23:00 → 10:00.
-                </p>
-
-                <FilterField label="Комментарий">
-                  <textarea
-                    name="comment"
-                    rows={4}
-                    value={slotForm.comment}
-                    onChange={(e) => setSlotForm((prev) => ({ ...prev, comment: e.target.value }))}
+                <FilterField label="Оплата в час, ₽ (необязательно)">
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    name="hourly_rate"
+                    value={slotForm.hourly_rate}
+                    onChange={(e) =>
+                      setSlotForm((prev) => ({ ...prev, hourly_rate: e.target.value }))
+                    }
+                    placeholder="Можно оставить пустым"
                     className="w-full rounded-lg border p-3"
                   />
                 </FilterField>
 
-                <label className="flex items-center gap-3 rounded-lg border p-3">
-                  <input
-                    type="checkbox"
-                    name="is_hot"
-                    checked={slotForm.is_hot}
-                    onChange={(e) => setSlotForm((prev) => ({ ...prev, is_hot: e.target.checked }))}
+                <FilterField label="Комментарий">
+                  <textarea
+                    name="comment"
+                    value={slotForm.comment}
+                    onChange={(e) =>
+                      setSlotForm((prev) => ({ ...prev, comment: e.target.value }))
+                    }
+                    rows={4}
+                    className="w-full rounded-lg border p-3"
                   />
-                  <span className="font-medium">Горячая смена 🔥</span>
-                </label>
+                </FilterField>
 
-                <div className="flex gap-2">
-                  <button className="rounded-lg bg-red-500 px-4 py-2 text-white hover:bg-red-600">
-                    {editSlot ? 'Сохранить изменения' : 'Добавить слот'}
+                <div className="grid gap-3 md:grid-cols-2">
+                  <label className="flex items-center gap-2 rounded-lg border p-3 text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      name="is_hot"
+                      checked={slotForm.is_hot}
+                      onChange={(e) =>
+                        setSlotForm((prev) => ({ ...prev, is_hot: e.target.checked }))
+                      }
+                    />
+                    Горячая смена
+                  </label>
+
+                  <FilterField label="Статус">
+                    <select
+                      name="status"
+                      value={slotForm.status}
+                      onChange={(e) =>
+                        setSlotForm((prev) => ({ ...prev, status: e.target.value }))
+                      }
+                      className="w-full rounded-lg border p-3"
+                    >
+                      <option value="open">open</option>
+                      <option value="closed">closed</option>
+                      <option value="assigned">assigned</option>
+                    </select>
+                  </FilterField>
+                </div>
+
+                {(slotForm.time_from || slotForm.time_to) && (
+                  <div className="rounded-xl bg-gray-50 p-4 text-sm text-gray-700">
+                    Длительность смены: {formatHours(shiftMeta.hours)}
+                  </div>
+                )}
+
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="submit"
+                    className="rounded-lg bg-red-500 px-4 py-3 text-white hover:bg-red-600"
+                  >
+                    {slotForm.slot_id ? 'Сохранить изменения' : 'Создать слот'}
                   </button>
 
-                  {editSlot && (
-                    <a
-                      href={buildAdminHref({ tab, q, restaurantFilter, from, to })}
-                      className="rounded-lg border px-4 py-2 text-gray-700 hover:bg-gray-50"
-                    >
-                      Отменить
-                    </a>
-                  )}
+                  <Link
+                    href="/admin"
+                    className="rounded-lg border px-4 py-3 text-gray-700 hover:bg-gray-50"
+                  >
+                    Сбросить форму
+                  </Link>
                 </div>
               </form>
             </div>
 
-            <div className="rounded-xl border bg-white p-6 shadow-sm">
-              <h2 className="mb-4 text-xl font-semibold">Добавить ресторан</h2>
+            <div className="rounded-2xl border bg-white p-5 shadow-sm">
+              <h2 className="mb-4 text-xl font-semibold">Новый ресторан</h2>
 
               <form action={saveRestaurant} className="space-y-4">
                 <FilterField label="Название">
-                  <input name="name" required className="w-full rounded-lg border p-3" />
+                  <input name="name" className="w-full rounded-lg border p-3" />
                 </FilterField>
 
                 <FilterField label="Адрес">
-                  <input name="address" required className="w-full rounded-lg border p-3" />
-                </FilterField>
-
-                <FilterField label="Город">
-                  <input name="city" required placeholder="Например: Москва или Казань" className="w-full rounded-lg border p-3" />
-                </FilterField>
-
-                <FilterField label="Метро">
-                  <input name="metro" placeholder="Необязательно" className="w-full rounded-lg border p-3" />
+                  <input name="address" className="w-full rounded-lg border p-3" />
                 </FilterField>
 
                 <div className="grid gap-4 md:grid-cols-2">
-                  <FilterField label="Широта">
-                    <input name="lat" type="number" step="0.000001" className="w-full rounded-lg border p-3" />
+                  <FilterField label="Город">
+                    <input name="city" className="w-full rounded-lg border p-3" />
                   </FilterField>
 
-                  <FilterField label="Долгота">
-                    <input name="lng" type="number" step="0.000001" className="w-full rounded-lg border p-3" />
+                  <FilterField label="Метро">
+                    <input name="metro" className="w-full rounded-lg border p-3" />
                   </FilterField>
                 </div>
 
-                <button className="rounded-lg border px-4 py-2 text-gray-700 hover:bg-gray-50">
-                  Добавить ресторан
+                <div className="grid gap-4 md:grid-cols-2">
+                  <FilterField label="Широта">
+                    <input name="lat" className="w-full rounded-lg border p-3" />
+                  </FilterField>
+
+                  <FilterField label="Долгота">
+                    <input name="lng" className="w-full rounded-lg border p-3" />
+                  </FilterField>
+                </div>
+
+                <button
+                  type="submit"
+                  className="rounded-lg bg-red-500 px-4 py-3 text-white hover:bg-red-600"
+                >
+                  Сохранить ресторан
                 </button>
               </form>
             </div>
           </div>
 
-          <div className="space-y-6">
-            <div className="rounded-xl border bg-white p-4 shadow-sm">
-              <form className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-                <input type="hidden" name="tab" value={tab} />
+          <div className="space-y-6 min-w-0">
+            <div className="flex flex-wrap gap-2">
+              <Link
+                href={buildAdminHref({ tab: 'open', q, restaurantFilter, from, to })}
+                className={`rounded-full px-4 py-2 text-sm ${
+                  tab === 'open' ? 'bg-red-500 text-white' : 'bg-white text-gray-700 border'
+                }`}
+              >
+                Открытые слоты · {openSlots.length}
+              </Link>
 
-                <FilterField label="Поиск">
-                  <input
-                    type="text"
-                    name="q"
-                    defaultValue={q}
-                    placeholder="Ресторан, сотрудник, телефон, должность..."
-                    className="w-full rounded-lg border p-3"
-                  />
-                </FilterField>
+              <Link
+                href={buildAdminHref({ tab: 'applications', q, restaurantFilter, from, to })}
+                className={`rounded-full px-4 py-2 text-sm ${
+                  tab === 'applications'
+                    ? 'bg-red-500 text-white'
+                    : 'bg-white text-gray-700 border'
+                }`}
+              >
+                Отклики · {pendingApplications.length}
+              </Link>
 
-                <FilterField label="Ресторан">
-                  <select name="restaurant" defaultValue={restaurantFilter} className="w-full rounded-lg border p-3">
-                    <option value="">Все</option>
-                    {restaurants.map((restaurant) => (
-                      <option key={restaurant.id} value={restaurant.id}>
-                        {restaurant.name}
-                      </option>
-                    ))}
-                  </select>
-                </FilterField>
+              <Link
+                href={buildAdminHref({ tab: 'assigned', q, restaurantFilter, from, to })}
+                className={`rounded-full px-4 py-2 text-sm ${
+                  tab === 'assigned' ? 'bg-red-500 text-white' : 'bg-white text-gray-700 border'
+                }`}
+              >
+                Назначенные · {assignedSlots.length}
+              </Link>
 
-                <FilterField label="С даты">
-                  <input type="date" name="from" defaultValue={from} className="w-full rounded-lg border p-3" />
-                </FilterField>
+              <Link
+                href={buildAdminHref({ tab: 'closed', q, restaurantFilter, from, to })}
+                className={`rounded-full px-4 py-2 text-sm ${
+                  tab === 'closed' ? 'bg-red-500 text-white' : 'bg-white text-gray-700 border'
+                }`}
+              >
+                Закрытые · {closedSlots.length}
+              </Link>
 
-                <FilterField label="По дату">
-                  <input type="date" name="to" defaultValue={to} className="w-full rounded-lg border p-3" />
-                </FilterField>
-
-                <div className="flex items-end gap-2 xl:col-span-5">
-                  <button className="rounded-lg bg-red-500 px-4 py-3 text-white hover:bg-red-600">
-                    Применить
-                  </button>
-                  <a href={buildAdminHref({ tab })} className="rounded-lg border px-4 py-3 text-gray-700 hover:bg-gray-50">
-                    Сбросить
-                  </a>
-                </div>
-              </form>
+              <Link
+                href={buildAdminHref({ tab: 'employees', q, restaurantFilter, from, to })}
+                className={`rounded-full px-4 py-2 text-sm ${
+                  tab === 'employees' ? 'bg-red-500 text-white' : 'bg-white text-gray-700 border'
+                }`}
+              >
+                Сотрудники · {employees.length}
+              </Link>
             </div>
 
-            <div className="rounded-xl border bg-white p-4 shadow-sm">
-              <div className="flex flex-wrap gap-2">
-                <a
-                  href={buildAdminHref({ tab: 'open', q, restaurantFilter, from, to })}
-                  className={`rounded-lg px-4 py-2 ${
-                    tab === 'open' ? 'bg-red-500 text-white' : 'border text-gray-700 hover:bg-gray-50'
-                  }`}
-                >
-                  Открытые слоты
-                </a>
+            {(tab === 'open' || tab === 'closed' || tab === 'assigned') && slotFilters}
+            {tab === 'applications' && applicationFilters}
+            {tab === 'employees' && employeeFilters}
 
-                <a
-                  href={buildAdminHref({ tab: 'applications', q, restaurantFilter, from, to })}
-                  className={`rounded-lg px-4 py-2 ${
-                    tab === 'applications' ? 'bg-red-500 text-white' : 'border text-gray-700 hover:bg-gray-50'
-                  }`}
-                >
-                  <span className="inline-flex items-center gap-2">
-                    Отклики
-                    {pendingApplications.length > 0 && (
-                      <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${tab === 'applications' ? 'bg-white/20 text-white' : 'bg-red-100 text-red-700'}`}>
-                        NEW! {pendingApplications.length}
-                      </span>
-                    )}
-                  </span>
-                </a>
-
-                <a
-                  href={buildAdminHref({ tab: 'assigned', q, restaurantFilter, from, to })}
-                  className={`rounded-lg px-4 py-2 ${
-                    tab === 'assigned' ? 'bg-red-500 text-white' : 'border text-gray-700 hover:bg-gray-50'
-                  }`}
-                >
-                  Подтвержденные
-                </a>
-
-                <a
-                  href={buildAdminHref({ tab: 'closed', q, restaurantFilter, from, to })}
-                  className={`rounded-lg px-4 py-2 ${
-                    tab === 'closed' ? 'bg-red-500 text-white' : 'border text-gray-700 hover:bg-gray-50'
-                  }`}
-                >
-                  Закрытые слоты
-                </a>
-
-                <a
-                  href={buildAdminHref({ tab: 'employees', q, restaurantFilter, from, to })}
-                  className={`rounded-lg px-4 py-2 ${
-                    tab === 'employees' ? 'bg-red-500 text-white' : 'border text-gray-700 hover:bg-gray-50'
-                  }`}
-                >
-                  Сотрудники
-                </a>
-              </div>
-            </div>
-
-            {tab === 'open' && (
-              <div className="rounded-xl border bg-white p-6 shadow-sm">
-                <div className="mb-4 flex items-center justify-between">
-                  <h2 className="text-xl font-semibold">Открытые слоты</h2>
-                  <span className="rounded-full bg-gray-100 px-3 py-1 text-sm text-gray-700">{openSlotsView.length}</span>
-                </div>
-
-                {slotFilters}
-
-                {openSlotsView.length === 0 ? (
-                  <p className="text-gray-500">Ничего не найдено</p>
+            {(tab === 'open' || tab === 'closed' || tab === 'assigned') && (
+              <div className="space-y-4">
+                {currentSlotsView.length === 0 ? (
+                  <div className="rounded-2xl border bg-white p-6 text-gray-500 shadow-sm">
+                    По выбранным условиям ничего не найдено.
+                  </div>
                 ) : (
-                  <div className="space-y-4">
-                    {openSlotsView.map((slot) =>
-                      renderSlotCard(
-                        slot,
-                        <>
-                          <a
-                            href={buildAdminHref({ tab: 'open', q, restaurantFilter, from, to, edit: slot.id })}
-                            className="rounded-lg border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                          >
-                            Редактировать
-                          </a>
+                  currentSlotsView.map((slot) =>
+                    renderSlotCard(
+                      slot,
+                      <>
+                        <Link
+                          href={buildAdminHref({
+                            tab,
+                            q,
+                            restaurantFilter,
+                            from,
+                            to,
+                            edit: slot.id,
+                          })}
+                          className="rounded-lg border px-4 py-2 text-gray-700 hover:bg-gray-50"
+                        >
+                          Изменить
+                        </Link>
 
+                        {tab === 'open' && (
                           <form action={closeSlot}>
                             <input type="hidden" name="slot_id" value={slot.id} />
-                            <button className="rounded-lg border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
-                              Закрыть слот
+                            <button
+                              type="submit"
+                              className="rounded-lg border px-4 py-2 text-gray-700 hover:bg-gray-50"
+                            >
+                              Закрыть
                             </button>
                           </form>
-                        </>
-                      )
-                    )}
-                  </div>
+                        )}
+
+                        {tab === 'closed' && (
+                          <form action={reopenSlotAsNew}>
+                            <input type="hidden" name="slot_id" value={slot.id} />
+                            <button
+                              type="submit"
+                              className="rounded-lg border px-4 py-2 text-gray-700 hover:bg-gray-50"
+                            >
+                              Возобновить как новую
+                            </button>
+                          </form>
+                        )}
+                      </>,
+                      tab === 'assigned' && approvedAppBySlotId[slot.id] ? (
+                        <div className="mt-3 rounded-xl bg-green-50 p-4 text-sm text-green-700">
+                          Назначен: {approvedAppBySlotId[slot.id].full_name}
+                          {approvedAppBySlotId[slot.id].employee_phone
+                            ? ` • ${approvedAppBySlotId[slot.id].employee_phone}`
+                            : ''}
+                        </div>
+                      ) : null
+                    )
+                  )
                 )}
               </div>
             )}
 
             {tab === 'applications' && (
-              <div className="rounded-xl border bg-white p-6 shadow-sm">
-                <div className="mb-4 flex items-center justify-between">
-                  <h2 className="text-xl font-semibold">Отклики</h2>
-                  <span className="rounded-full bg-gray-100 px-3 py-1 text-sm text-gray-700">{pendingApplicationsView.length}</span>
-                </div>
-
-                {applicationFilters}
-
+              <div className="space-y-4">
                 {pendingApplicationsView.length === 0 ? (
-                  <p className="text-gray-500">Ничего не найдено</p>
+                  <div className="rounded-2xl border bg-white p-6 text-gray-500 shadow-sm">
+                    Новых откликов нет.
+                  </div>
                 ) : (
-                  <div className="space-y-4">
-                    {pendingApplicationsView.map((app) => {
-                      const slot = allSlots.find((s) => s.id === app.slot_id);
-                      const restaurant = getRestaurantById(slot?.restaurant_id);
-                      const employeeHomeRestaurant = getRestaurantById(app.employee_home_restaurant_id);
-                      const meta = slot ? getShiftMeta(slot.time_from, slot.time_to) : { hours: null, overnight: false };
+                  pendingApplicationsView.map((app) => {
+                    const slot = allSlots.find((item) => item.id === app.slot_id);
+                    const restaurant = slot ? getRestaurantById(slot.restaurant_id) : null;
+                    const shiftMeta =
+                      slot?.time_from && slot?.time_to
+                        ? getShiftMeta(slot.time_from, slot.time_to)
+                        : { hours: null, overnight: false };
 
-                      return (
-                        <div key={app.id} className="rounded-xl border p-4">
-                          <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-                            <div>
-                              <h3 className="font-semibold">{app.full_name}</h3>
-                              <p className="text-sm text-gray-500">{app.contact}</p>
-                            </div>
-                            <span className="rounded-full bg-red-100 px-3 py-1 text-sm font-medium text-red-700">
-                              NEW!
-                            </span>
+                    return (
+                      <div key={app.id} className="rounded-2xl border bg-white p-5 shadow-sm">
+                        <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <h3 className="text-lg font-semibold">{app.full_name}</h3>
+                            <p className="text-sm text-gray-600">
+                              {[app.employee_email, app.employee_phone, app.employee_role]
+                                .filter(Boolean)
+                                .join(' • ')}
+                            </p>
                           </div>
 
-                          <div className="grid gap-2 text-sm text-gray-700 md:grid-cols-2">
-                            <p><span className="font-medium">Свой ресторан:</span> {app.home_restaurant}</p>
-                            <p><span className="font-medium">Дата отклика:</span> {formatDateTime(app.created_at)}</p>
-                            <p><span className="font-medium">Ресторан подработки:</span> {restaurant?.name || 'Не найден'}</p>
-                            <p><span className="font-medium">Должность на смене:</span> {slot?.position || '—'}</p>
-                            <p><span className="font-medium">Дата смены:</span> {slot?.work_date || '—'}</p>
-                            <p><span className="font-medium">Часы:</span> {meta.hours ? `${meta.hours} ч${meta.overnight ? ' • через полночь' : ''}` : '—'}</p>
-                            <p><span className="font-medium">Email сотрудника:</span> {app.employee_email || '—'}</p>
-                            <p><span className="font-medium">Телефон сотрудника:</span> {app.employee_phone || app.contact || '—'}</p>
-                            <p><span className="font-medium">Роль сотрудника:</span> {app.employee_role || '—'}</p>
-                            <p><span className="font-medium">Домашний ресторан:</span> {employeeHomeRestaurant?.name || app.home_restaurant || '—'}</p>
-                          </div>
+                          <span className="rounded-full bg-yellow-100 px-3 py-1 text-sm font-medium text-yellow-700">
+                            На рассмотрении
+                          </span>
+                        </div>
 
-                          {app.comment && <p className="mt-2 text-sm text-gray-500">{app.comment}</p>}
-
-                          <p className="mt-2 text-xs text-gray-500">
-                            Получен: {formatDateTime(app.created_at)} • {formatRelative(app.created_at)}
+                        <div className="grid gap-2 text-sm text-gray-700 md:grid-cols-2">
+                          <p>Домашний ресторан: {app.home_restaurant || '—'}</p>
+                          <p>Контакт: {app.contact || '—'}</p>
+                          <p>Рабочий ресторан: {restaurant?.name || '—'}</p>
+                          <p>Дата: {slot ? formatDateRu(slot.work_date) : '—'}</p>
+                          <p>
+                            Время:{' '}
+                            {slot
+                              ? formatShiftTimeRange(slot.time_from, slot.time_to, shiftMeta.overnight)
+                              : '—'}
                           </p>
+                          <p>Должность: {slot?.position || '—'}</p>
+                        </div>
 
-                          <div className="mt-4 flex flex-wrap gap-2">
-                            <form action={approveApplication} className="flex gap-2">
-                              <input type="hidden" name="application_id" value={app.id} />
-                              <input type="hidden" name="slot_id" value={app.slot_id} />
-                              <button className="rounded-lg bg-red-500 px-4 py-2 text-sm text-white hover:bg-red-600">
-                                Подтвердить
-                              </button>
-                            </form>
+                        <div className="mt-3 rounded-xl bg-gray-50 p-4 text-sm text-gray-700">
+                          Оплата:{' '}
+                          {slot?.hourly_rate ? `${slot.hourly_rate} ₽/час` : 'Не указана'}
+                          <br />
+                          Длительность: {formatHours(shiftMeta.hours)}
+                        </div>
 
-                            <form action={rejectApplication} className="flex flex-wrap gap-2">
-                              <input type="hidden" name="application_id" value={app.id} />
-                              <input type="hidden" name="slot_id" value={app.slot_id} />
-                              <input
-                                type="text"
-                                name="rejection_reason"
-                                required
-                                placeholder="Причина отклонения"
-                                className="rounded-lg border px-3 py-2 text-sm"
-                              />
-                              <button className="rounded-lg border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
-                                Отклонить
-                              </button>
-                            </form>
+                        {app.comment && (
+                          <div className="mt-3 rounded-xl bg-gray-50 p-4 text-sm text-gray-700">
+                            Комментарий: {app.comment}
                           </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
+                        )}
 
-            {tab === 'assigned' && (
-              <div className="rounded-xl border bg-white p-6 shadow-sm">
-                <div className="mb-4 flex items-center justify-between">
-                  <h2 className="text-xl font-semibold">Подтвержденные смены</h2>
-                  <span className="rounded-full bg-gray-100 px-3 py-1 text-sm text-gray-700">{assignedSlotsView.length}</span>
-                </div>
+                        <p className="mt-2 text-xs text-gray-500">
+                          Отклик отправлен: {formatDateTime(app.created_at)}
+                        </p>
 
-                {slotFilters}
-
-                {assignedSlotsView.length === 0 ? (
-                  <p className="text-gray-500">Ничего не найдено</p>
-                ) : (
-                  <div className="space-y-4">
-                    {assignedSlotsView.map((slot) => {
-                      const approvedApp = approvedAppBySlotId[slot.id];
-                      const approvedHomeRestaurant = getRestaurantById(approvedApp?.employee_home_restaurant_id || null);
-
-                      return renderSlotCard(
-                        slot,
-                        undefined,
-                        <div className="mt-4 rounded-lg bg-gray-50 p-4">
-                          <p className="mb-2 text-sm font-semibold text-gray-700">Назначенный сотрудник</p>
-                          {approvedApp ? (
-                            <div className="grid gap-2 text-sm text-gray-700 md:grid-cols-2">
-                              <p><span className="font-medium">ФИО:</span> {approvedApp.full_name}</p>
-                              <p><span className="font-medium">Контакт:</span> {approvedApp.contact}</p>
-                              <p><span className="font-medium">Email:</span> {approvedApp.employee_email || '—'}</p>
-                              <p><span className="font-medium">Роль:</span> {approvedApp.employee_role || '—'}</p>
-                              <p><span className="font-medium">Свой ресторан:</span> {approvedHomeRestaurant?.name || approvedApp.home_restaurant}</p>
-                              <p><span className="font-medium">Отклик:</span> {formatDateTime(approvedApp.created_at)}</p>
-                            </div>
-                          ) : (
-                            <p className="text-sm text-gray-500">Данные сотрудника не найдены</p>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {tab === 'closed' && (
-              <div className="rounded-xl border bg-white p-6 shadow-sm">
-                <div className="mb-4 flex items-center justify-between">
-                  <h2 className="text-xl font-semibold">Закрытые слоты</h2>
-                  <span className="rounded-full bg-gray-100 px-3 py-1 text-sm text-gray-700">{closedSlotsView.length}</span>
-                </div>
-
-                {slotFilters}
-
-                {closedSlotsView.length === 0 ? (
-                  <p className="text-gray-500">Ничего не найдено</p>
-                ) : (
-                  <div className="space-y-4">
-                    {closedSlotsView.map((slot) =>
-                      renderSlotCard(
-                        slot,
-                        <>
-                          <a
-                            href={buildAdminHref({ tab: 'closed', q, restaurantFilter, from, to, edit: slot.id })}
-                            className="rounded-lg border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                          >
-                            Редактировать
-                          </a>
-
-                          <form action={reopenSlotAsNew}>
-                            <input type="hidden" name="slot_id" value={slot.id} />
-                            <button className="rounded-lg border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
-                              Возобновить как новую
+                        <div className="mt-4 flex flex-wrap gap-3">
+                          <form action={approveApplication}>
+                            <input type="hidden" name="application_id" value={app.id} />
+                            <input type="hidden" name="slot_id" value={app.slot_id} />
+                            <button
+                              type="submit"
+                              className="rounded-lg bg-green-600 px-4 py-2 text-white hover:bg-green-700"
+                            >
+                              Подтвердить
                             </button>
                           </form>
-                        </>
-                      )
-                    )}
-                  </div>
+
+                          <form action={rejectApplication} className="flex flex-wrap gap-2">
+                            <input type="hidden" name="application_id" value={app.id} />
+                            <input type="hidden" name="slot_id" value={app.slot_id} />
+                            <input
+                              name="rejection_reason"
+                              placeholder="Причина отказа"
+                              className="rounded-lg border p-2"
+                            />
+                            <button
+                              type="submit"
+                              className="rounded-lg border px-4 py-2 text-gray-700 hover:bg-gray-50"
+                            >
+                              Отклонить
+                            </button>
+                          </form>
+                        </div>
+                      </div>
+                    );
+                  })
                 )}
               </div>
             )}
 
             {tab === 'employees' && (
-              <div className="rounded-xl border bg-white p-6 shadow-sm">
-                <div className="mb-4 flex items-center justify-between">
-                  <h2 className="text-xl font-semibold">Зарегистрированные сотрудники</h2>
-                  <span className="rounded-full bg-gray-100 px-3 py-1 text-sm text-gray-700">{employeesView.length}</span>
-                </div>
-
-                {employeeFilters}
-
+              <div className="space-y-4">
                 {employeesView.length === 0 ? (
-                  <p className="text-gray-500">Сотрудники пока не найдены</p>
-                ) : (
-                  <div className="space-y-4">
-                    {employeesView.map((employee) => {
-                      const homeRestaurant = getRestaurantById(employee.home_restaurant_id);
-
-                      return (
-                        <div key={employee.user_id} className="rounded-xl border p-4">
-                          <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-                            <div>
-                              <h3 className="font-semibold">{employee.full_name || 'Без ФИО'}</h3>
-                              <p className="text-sm text-gray-500">{employee.email || 'Email не указан'}</p>
-                            </div>
-
-                            <span className={`rounded-full px-3 py-1 text-sm font-medium ${employee.is_blocked ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
-                              {employee.is_blocked ? 'Заблокирован' : 'Активен'}
-                            </span>
-                          </div>
-
-                          <div className="grid gap-2 text-sm text-gray-700 md:grid-cols-2">
-                            <p><span className="font-medium">Телефон:</span> {employee.phone || '—'}</p>
-                            <p><span className="font-medium">Должность:</span> {employee.role || '—'}</p>
-                            <p><span className="font-medium">Домашний ресторан:</span> {homeRestaurant?.name || '—'}</p>
-                            <p><span className="font-medium">Город:</span> {homeRestaurant?.city || '—'}</p>
-                            <p><span className="font-medium">Регистрация:</span> {formatDateTime(employee.created_at)}</p>
-                            <p><span className="font-medium">Обновлен:</span> {formatDateTime(employee.updated_at)}</p>
-                          </div>
-
-                          <div className="mt-4 flex flex-wrap gap-2">
-                            <form action={toggleEmployeeBlock}>
-                              <input type="hidden" name="user_id" value={employee.user_id} />
-                              <input type="hidden" name="next_blocked" value={employee.is_blocked ? 'false' : 'true'} />
-                              <button className={`rounded-lg px-4 py-2 text-sm text-white ${employee.is_blocked ? 'bg-green-600 hover:bg-green-700' : 'bg-red-500 hover:bg-red-600'}`}>
-                                {employee.is_blocked ? 'Разблокировать' : 'Заблокировать'}
-                              </button>
-                            </form>
-                          </div>
-                        </div>
-                      );
-                    })}
+                  <div className="rounded-2xl border bg-white p-6 text-gray-500 shadow-sm">
+                    Сотрудники не найдены.
                   </div>
+                ) : (
+                  employeesView.map((employee) => {
+                    const restaurant = getRestaurantById(employee.home_restaurant_id);
+
+                    return (
+                      <div key={employee.user_id} className="rounded-2xl border bg-white p-5 shadow-sm">
+                        <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <h3 className="text-lg font-semibold">{employee.full_name}</h3>
+                            <p className="text-sm text-gray-600">
+                              {[employee.email, employee.phone, employee.role]
+                                .filter(Boolean)
+                                .join(' • ')}
+                            </p>
+                          </div>
+
+                          <span
+                            className={`rounded-full px-3 py-1 text-sm font-medium ${
+                              employee.is_blocked
+                                ? 'bg-red-100 text-red-700'
+                                : 'bg-green-100 text-green-700'
+                            }`}
+                          >
+                            {employee.is_blocked ? 'Заблокирован' : 'Активен'}
+                          </span>
+                        </div>
+
+                        <div className="grid gap-2 text-sm text-gray-700 md:grid-cols-2">
+                          <p>Домашний ресторан: {restaurant?.name || '—'}</p>
+                          <p>Создан: {formatDateTime(employee.created_at)}</p>
+                        </div>
+
+                        <div className="mt-4">
+                          <form action={toggleEmployeeBlock}>
+                            <input type="hidden" name="user_id" value={employee.user_id} />
+                            <input
+                              type="hidden"
+                              name="next_blocked"
+                              value={employee.is_blocked ? 'false' : 'true'}
+                            />
+                            <button
+                              type="submit"
+                              className="rounded-lg border px-4 py-2 text-gray-700 hover:bg-gray-50"
+                            >
+                              {employee.is_blocked ? 'Разблокировать' : 'Заблокировать'}
+                            </button>
+                          </form>
+                        </div>
+                      </div>
+                    );
+                  })
                 )}
               </div>
             )}

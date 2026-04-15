@@ -7,13 +7,16 @@ function getString(formData: FormData, key: string) {
   return String(formData.get(key) || '').trim();
 }
 
-function getNumber(formData: FormData, key: string) {
+function getNumberOrNull(formData: FormData, key: string) {
   const value = String(formData.get(key) ?? '').trim();
-  return Number(value);
-}
 
-function isPositiveMoney(value: number) {
-  return Number.isFinite(value) && value > 0;
+  if (!value) {
+    return null;
+  }
+
+  const parsed = Number(value);
+
+  return Number.isFinite(parsed) ? parsed : NaN;
 }
 
 function buildDateTime(date: string, time: string) {
@@ -78,27 +81,34 @@ export async function saveRestaurant(formData: FormData) {
   if (error) throw new Error(error.message);
 
   revalidatePath('/');
+  revalidatePath('/slots');
   revalidatePath('/admin');
 }
 
 export async function saveSlot(formData: FormData) {
-  const slotId = getNumber(formData, 'slot_id');
-  const restaurantId = getNumber(formData, 'restaurant_id');
+  const slotIdRaw = getString(formData, 'slot_id');
+  const restaurantId = Number(getString(formData, 'restaurant_id'));
   const workDate = getString(formData, 'work_date');
   const timeFrom = getString(formData, 'time_from');
   const timeTo = getString(formData, 'time_to');
   const position = getString(formData, 'position');
-  const hourlyRate = getNumber(formData, 'hourly_rate');
+  const hourlyRate = getNumberOrNull(formData, 'hourly_rate');
   const comment = getString(formData, 'comment');
   const isHot = formData.get('is_hot') === 'on';
   const status = getString(formData, 'status') || 'open';
+
+  const slotId = slotIdRaw ? Number(slotIdRaw) : null;
 
   if (!restaurantId || !workDate || !timeFrom || !timeTo || !position) {
     throw new Error('Заполнены не все обязательные поля слота');
   }
 
-  if (!isPositiveMoney(hourlyRate)) {
-    throw new Error('Оплата в час должна быть положительным числом');
+  if (hourlyRate !== null && !Number.isFinite(hourlyRate)) {
+    throw new Error('Оплата в час указана некорректно');
+  }
+
+  if (hourlyRate !== null && hourlyRate <= 0) {
+    throw new Error('Оплата в час должна быть больше нуля');
   }
 
   validateFutureSlot(workDate, timeFrom, timeTo);
@@ -110,25 +120,29 @@ export async function saveSlot(formData: FormData) {
     time_to: timeTo,
     position,
     hourly_rate: hourlyRate,
-    comment,
+    comment: comment || null,
     is_hot: isHot,
     status,
   };
 
   if (slotId) {
     const { error } = await supabaseAdmin.from('slots').update(payload).eq('id', slotId);
+
     if (error) throw new Error(error.message);
   } else {
     const { error } = await supabaseAdmin.from('slots').insert([payload]);
+
     if (error) throw new Error(error.message);
   }
 
   revalidatePath('/');
+  revalidatePath('/slots');
   revalidatePath('/admin');
 }
 
 export async function closeSlot(formData: FormData) {
-  const slotId = getNumber(formData, 'slot_id');
+  const slotId = Number(getString(formData, 'slot_id'));
+
   if (!slotId) throw new Error('Не найден слот');
 
   const { error } = await supabaseAdmin
@@ -139,11 +153,13 @@ export async function closeSlot(formData: FormData) {
   if (error) throw new Error(error.message);
 
   revalidatePath('/');
+  revalidatePath('/slots');
   revalidatePath('/admin');
 }
 
 export async function reopenSlotAsNew(formData: FormData) {
-  const slotId = getNumber(formData, 'slot_id');
+  const slotId = Number(getString(formData, 'slot_id'));
+
   if (!slotId) throw new Error('Не найден слот');
 
   const { data: slot, error: readError } = await supabaseAdmin
@@ -163,7 +179,7 @@ export async function reopenSlotAsNew(formData: FormData) {
       time_from: slot.time_from,
       time_to: slot.time_to,
       position: slot.position,
-      hourly_rate: slot.hourly_rate,
+      hourly_rate: slot.hourly_rate ?? null,
       comment: slot.comment,
       is_hot: slot.is_hot ?? false,
       status: 'open',
@@ -173,12 +189,13 @@ export async function reopenSlotAsNew(formData: FormData) {
   if (insertError) throw new Error(insertError.message);
 
   revalidatePath('/');
+  revalidatePath('/slots');
   revalidatePath('/admin');
 }
 
 export async function rejectApplication(formData: FormData) {
-  const applicationId = getNumber(formData, 'application_id');
-  const slotId = getNumber(formData, 'slot_id');
+  const applicationId = Number(getString(formData, 'application_id'));
+  const slotId = Number(getString(formData, 'slot_id'));
   const rejectionReason = getString(formData, 'rejection_reason');
 
   if (!applicationId || !slotId) {
@@ -206,13 +223,13 @@ export async function rejectApplication(formData: FormData) {
 
   if (slotError) throw new Error(slotError.message);
 
-  revalidatePath('/');
   revalidatePath('/admin');
+  revalidatePath('/my-applications');
 }
 
 export async function approveApplication(formData: FormData) {
-  const applicationId = getNumber(formData, 'application_id');
-  const slotId = getNumber(formData, 'slot_id');
+  const applicationId = Number(getString(formData, 'application_id'));
+  const slotId = Number(getString(formData, 'slot_id'));
 
   if (!applicationId || !slotId) {
     throw new Error('Не хватает данных для подтверждения');
@@ -247,8 +264,8 @@ export async function approveApplication(formData: FormData) {
 
   if (slotError) throw new Error(slotError.message);
 
-  revalidatePath('/');
   revalidatePath('/admin');
+  revalidatePath('/my-applications');
 }
 
 export async function toggleEmployeeBlock(formData: FormData) {

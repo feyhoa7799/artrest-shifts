@@ -2,7 +2,13 @@ import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import ApplyButton from '@/app/components/ApplyButton';
 import ContactCard from '@/app/components/ContactCard';
-import { getShiftMeta } from '@/lib/shift';
+import {
+  formatDateRu,
+  formatHours,
+  formatShiftTimeRange,
+  getShiftMeta,
+  pluralRu,
+} from '@/lib/shift';
 
 type PageProps = {
   params: Promise<{
@@ -17,21 +23,12 @@ type Slot = {
   time_from: string;
   time_to: string;
   position: string;
-  hourly_rate: number;
+  hourly_rate: number | null;
   comment: string | null;
   status: 'open' | 'pending' | 'closed' | 'assigned';
   is_hot: boolean | null;
   created_at: string;
 };
-
-function pluralRu(value: number, one: string, few: string, many: string) {
-  const mod10 = value % 10;
-  const mod100 = value % 100;
-
-  if (mod10 === 1 && mod100 !== 11) return one;
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return few;
-  return many;
-}
 
 function formatRelative(value: string) {
   const date = new Date(value);
@@ -176,13 +173,13 @@ export default async function RestaurantPage({ params }: PageProps) {
                     </div>
 
                     <div className="grid gap-2 text-sm text-gray-700 md:grid-cols-2">
-                      <p>Дата: {slot.work_date}</p>
+                      <p>Дата: {formatDateRu(slot.work_date)}</p>
+                      <p>Время: {formatShiftTimeRange(slot.time_from, slot.time_to, meta.overnight)}</p>
                       <p>
-                        Время: {slot.time_from} – {slot.time_to}
-                        {meta.overnight ? ' (следующий день)' : ''}
+                        Оплата:{' '}
+                        {slot.hourly_rate ? `${slot.hourly_rate} ₽/час` : 'По договоренности'}
                       </p>
-                      <p>Оплата: {slot.hourly_rate} ₽/час</p>
-                      <p>Длительность: {meta.hours ? `${meta.hours} ч` : '—'}</p>
+                      <p>Длительность: {formatHours(meta.hours)}</p>
                     </div>
 
                     {slot.comment && (
