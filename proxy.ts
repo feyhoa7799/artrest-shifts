@@ -9,14 +9,14 @@ function unauthorized() {
       'Cache-Control': 'no-store',
       'Content-Type': 'text/plain; charset=utf-8',
       'X-Content-Type-Options': 'nosniff',
-      
+      // Эти заголовки решают проблему «Подключение не защищено»
       'Content-Security-Policy': 'upgrade-insecure-requests',
       'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
     },
   });
 }
 
-export function middleware(req: NextRequest) {
+export function proxy(req: NextRequest) {
   if (!req.nextUrl.pathname.startsWith('/admin')) {
     return NextResponse.next();
   }
@@ -29,8 +29,6 @@ export function middleware(req: NextRequest) {
       status: 503,
       headers: {
         'Cache-Control': 'no-store',
-        'Content-Security-Policy': 'upgrade-insecure-requests',
-        'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
       },
     });
   }
