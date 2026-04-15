@@ -7,8 +7,14 @@ services:
         NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
         NEXT_PUBLIC_YANDEX_MAP_API_KEY: ${NEXT_PUBLIC_YANDEX_MAP_API_KEY}
     container_name: artrest-shifts-app
-    restart: unless-stopped
+    restart: always
     env_file:
       - .env.production
+    environment:
+      NODE_ENV: production
+      PORT: 434
+      HOSTNAME: 0.0.0.0
+      ADMIN_USERNAME: ${ADMIN_USERNAME}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
     ports:
-      - "8080:443"
+      - "8080:434"
