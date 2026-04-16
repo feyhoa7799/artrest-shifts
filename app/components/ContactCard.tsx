@@ -18,6 +18,7 @@ export default function ContactCard() {
             className="text-red-600 hover:underline"
           >
             hr@akrussia.com
+            @voice_ar_bot
           </a>
         </div>
       </div>

@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import AdminDashboard from './AdminDashboard';
 import AdminAccessManager from './AdminAccessManager';
+import { getShiftEndDate } from '@/lib/shift';
 
 type SearchParams = Promise<{
   tab?: string;
@@ -113,6 +114,12 @@ function buildEmployeeSearch(employee: EmployeeProfile, restaurant?: Restaurant 
   ].join(' ');
 }
 
+function isSlotFinished(slot: Slot, now = new Date()) {
+  const end = getShiftEndDate(slot.work_date, slot.time_from, slot.time_to);
+  if (!end) return false;
+  return end.getTime() < now.getTime();
+}
+
 export default async function AdminPage(props: { searchParams: SearchParams }) {
   const searchParams = await props.searchParams;
 
@@ -174,9 +181,20 @@ export default async function AdminPage(props: { searchParams: SearchParams }) {
     return true;
   };
 
+  const now = new Date();
+
   const openSlots = slots.filter(
     (slot) =>
       slot.status === 'open' &&
+      !isSlotFinished(slot, now) &&
+      filterByRestaurantAndDate(slot) &&
+      (!q || matchesText(buildSlotSearch(slot, restaurantMap.get(slot.restaurant_id)), q))
+  );
+
+  const unrealizedSlots = slots.filter(
+    (slot) =>
+      slot.status === 'open' &&
+      isSlotFinished(slot, now) &&
       filterByRestaurantAndDate(slot) &&
       (!q || matchesText(buildSlotSearch(slot, restaurantMap.get(slot.restaurant_id)), q))
   );
@@ -252,6 +270,7 @@ export default async function AdminPage(props: { searchParams: SearchParams }) {
       <AdminDashboard
         restaurants={restaurants}
         openSlots={openSlots}
+        unrealizedSlots={unrealizedSlots}
         closedSlots={closedSlots}
         assignedSlots={assignedSlots}
         pendingApplications={pendingApplications}

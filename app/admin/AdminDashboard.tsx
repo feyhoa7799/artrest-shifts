@@ -72,6 +72,7 @@ type EmployeeProfile = {
 type Props = {
   restaurants: Restaurant[];
   openSlots: Slot[];
+  unrealizedSlots: Slot[];
   closedSlots: Slot[];
   assignedSlots: Slot[];
   pendingApplications: Application[];
@@ -172,6 +173,7 @@ function FilterField({ label, children }: { label: string; children: ReactNode }
 export default function AdminDashboard({
   restaurants,
   openSlots,
+  unrealizedSlots,
   closedSlots,
   assignedSlots,
   pendingApplications,
@@ -238,12 +240,12 @@ export default function AdminDashboard({
   const slotPositionOptions = useMemo(() => {
     const positions = new Set<string>();
 
-    [...openSlots, ...closedSlots, ...assignedSlots].forEach((slot) => {
+    [...openSlots, ...unrealizedSlots, ...closedSlots, ...assignedSlots].forEach((slot) => {
       if (slot.position) positions.add(slot.position);
     });
 
     return [...positions].sort((a, b) => a.localeCompare(b, 'ru'));
-  }, [openSlots, closedSlots, assignedSlots]);
+  }, [openSlots, unrealizedSlots, closedSlots, assignedSlots]);
 
   const employeeRoleOptions = useMemo(() => {
     const roles = new Set<string>();
@@ -288,6 +290,11 @@ export default function AdminDashboard({
   const openSlotsView = useMemo(
     () => filterSlotsForView(openSlots),
     [openSlots, slotQuickSearch, slotQuickRestaurant, slotQuickPosition, slotQuickHotOnly]
+  );
+
+  const unrealizedSlotsView = useMemo(
+    () => filterSlotsForView(unrealizedSlots),
+    [unrealizedSlots, slotQuickSearch, slotQuickRestaurant, slotQuickPosition, slotQuickHotOnly]
   );
 
   const closedSlotsView = useMemo(
@@ -633,7 +640,9 @@ export default function AdminDashboard({
   );
 
   const currentSlotsView =
-    tab === 'closed'
+    tab === 'unrealized'
+      ? unrealizedSlotsView
+      : tab === 'closed'
       ? closedSlotsView
       : tab === 'assigned'
       ? assignedSlotsView
@@ -938,6 +947,17 @@ export default function AdminDashboard({
               </Link>
 
               <Link
+                href={buildAdminHref({ tab: 'unrealized', q, restaurantFilter, from, to })}
+                className={`rounded-full px-4 py-2 text-sm ${
+                  tab === 'unrealized'
+                    ? 'bg-red-500 text-white'
+                    : 'bg-white text-gray-700 border'
+                }`}
+              >
+                Нереализованные · {unrealizedSlots.length}
+              </Link>
+
+              <Link
                 href={buildAdminHref({ tab: 'applications', q, restaurantFilter, from, to })}
                 className={`rounded-full px-4 py-2 text-sm ${
                   tab === 'applications'
@@ -976,11 +996,12 @@ export default function AdminDashboard({
               </Link>
             </div>
 
-            {(tab === 'open' || tab === 'closed' || tab === 'assigned') && slotFilters}
+            {(tab === 'open' || tab === 'unrealized' || tab === 'closed' || tab === 'assigned') &&
+              slotFilters}
             {tab === 'applications' && applicationFilters}
             {tab === 'employees' && employeeFilters}
 
-            {(tab === 'open' || tab === 'closed' || tab === 'assigned') && (
+            {(tab === 'open' || tab === 'unrealized' || tab === 'closed' || tab === 'assigned') && (
               <div className="space-y-4">
                 {currentSlotsView.length === 0 ? (
                   <div className="rounded-2xl border bg-white p-6 text-gray-500 shadow-sm">
@@ -1005,7 +1026,7 @@ export default function AdminDashboard({
                           Изменить
                         </Link>
 
-                        {tab === 'open' && (
+                        {(tab === 'open' || tab === 'unrealized') && (
                           <form action={closeSlot}>
                             <input type="hidden" name="slot_id" value={slot.id} />
                             <button
@@ -1017,7 +1038,7 @@ export default function AdminDashboard({
                           </form>
                         )}
 
-                        {tab === 'closed' && (
+                        {(tab === 'closed' || tab === 'unrealized') && (
                           <form action={reopenSlotAsNew}>
                             <input type="hidden" name="slot_id" value={slot.id} />
                             <button
@@ -1035,6 +1056,10 @@ export default function AdminDashboard({
                           {approvedAppBySlotId[slot.id].employee_phone
                             ? ` • ${approvedAppBySlotId[slot.id].employee_phone}`
                             : ''}
+                        </div>
+                      ) : tab === 'unrealized' ? (
+                        <div className="mt-3 rounded-xl bg-yellow-50 p-4 text-sm text-yellow-800">
+                          Дата смены прошла, но слот не был реализован.
                         </div>
                       ) : null
                     )

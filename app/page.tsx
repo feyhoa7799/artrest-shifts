@@ -30,7 +30,7 @@ export default function Home() {
           <div className="relative grid gap-6 p-8 md:grid-cols-[1.15fr_0.85fr] md:p-10">
             <div>
               <p className="mb-2 text-sm font-semibold uppercase tracking-[0.18em] text-white/90">
-                АртРест × ROSTIC’S
+                АртРест | ROSTIC’S
               </p>
 
               <h1 className="mb-3 text-3xl font-bold md:text-5xl">
@@ -43,8 +43,7 @@ export default function Home() {
               </p>
 
               <div className="mt-4 max-w-2xl text-sm text-white/90">
-                Зарегистрируйтесь один раз, подтвердите почту, задайте пароль и заполните профиль.
-                После этого вы сможете входить по email и паролю, без постоянных писем на почту.
+                Создаем настоящее искусство в управлении ресторанами ROSTIC'S
               </div>
             </div>
 
