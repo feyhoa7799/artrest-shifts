@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { User } from '@supabase/supabase-js';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
+import Turnstile from 'react-turnstile';
 import { supabase } from '@/lib/supabase';
 import { validatePasswordStrength } from '@/lib/password';
 import ChangePasswordForm from '@/app/components/ChangePasswordForm';
@@ -141,6 +142,9 @@ export default function AuthGate() {
   const [sendingReset, setSendingReset] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
 
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [captchaKey, setCaptchaKey] = useState(0);
+
   const mountedRef = useRef(false);
 
   const passwordCheck = useMemo(
@@ -152,6 +156,11 @@ export default function AuthGate() {
   const profileDirty = currentProfileKey !== savedProfileKey;
   const phoneIsValid = /^\+7\d{10}$/.test(profile.phone || '');
   const completeProfileRequired = searchParams.get('completeProfile') === '1';
+
+  function resetCaptcha() {
+    setCaptchaToken(null);
+    setCaptchaKey((prev) => prev + 1);
+  }
 
   function showError(message: string) {
     setError(message);
@@ -407,6 +416,11 @@ export default function AuthGate() {
       return;
     }
 
+    if (!captchaToken) {
+      showError('Подтвердите, что вы не робот');
+      return;
+    }
+
     setSendingCode(true);
 
     try {
@@ -414,16 +428,19 @@ export default function AuthGate() {
         email: registerEmail.trim(),
         options: {
           shouldCreateUser: true,
+          captchaToken,
         },
       });
 
       if (error) {
         showError(error.message);
+        resetCaptcha();
         return;
       }
 
       setRegisterStep('code');
       showNotice('Код отправлен на почту.');
+      resetCaptcha();
     } finally {
       setSendingCode(false);
     }
@@ -680,6 +697,7 @@ export default function AuthGate() {
     setSessionUser(null);
     setNeedsPasswordSetup(false);
     setAdminState({ isAdmin: false, isSuperadmin: false });
+    resetCaptcha();
     await hydrate();
   }
 
@@ -802,6 +820,7 @@ export default function AuthGate() {
               setMode('register');
               setError('');
               setNotice('');
+              resetCaptcha();
             }}
             className={`rounded-full px-4 py-2 text-sm ${
               mode === 'register'
@@ -917,10 +936,28 @@ export default function AuthGate() {
                   </label>
                 </div>
 
+                <div className="rounded-2xl border bg-gray-50 p-4">
+                  <Turnstile
+                    key={captchaKey}
+                    sitekey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || ''}
+                    onVerify={(token) => {
+                      setCaptchaToken(token);
+                      setError('');
+                    }}
+                    onExpire={() => {
+                      setCaptchaToken(null);
+                    }}
+                    onError={() => {
+                      setCaptchaToken(null);
+                      showError('Ошибка проверки CAPTCHA. Попробуйте ещё раз.');
+                    }}
+                  />
+                </div>
+
                 <button
                   type="button"
                   onClick={handleSendCode}
-                  disabled={sendingCode || !consentChecked}
+                  disabled={sendingCode || !consentChecked || !captchaToken}
                   className="rounded-lg bg-red-500 px-4 py-3 text-white hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {sendingCode ? 'Отправляю код...' : 'Получить код на почту'}
@@ -960,6 +997,7 @@ export default function AuthGate() {
                     onClick={() => {
                       setRegisterStep('email');
                       setRegisterCode('');
+                      resetCaptcha();
                     }}
                     className="rounded-lg border px-4 py-3 text-gray-700 hover:bg-gray-50"
                   >
