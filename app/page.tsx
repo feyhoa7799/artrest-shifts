@@ -1,6 +1,15 @@
 import Image from 'next/image';
+import { Suspense } from 'react';
 import ContactCard from '@/app/components/ContactCard';
 import AuthGate from '@/app/components/AuthGate';
+
+function AuthGateFallback() {
+  return (
+    <div className="rounded-2xl border bg-white p-6 shadow-sm">
+      Загрузка...
+    </div>
+  );
+}
 
 export default function Home() {
   return (
@@ -47,7 +56,9 @@ export default function Home() {
 
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
           <div className="space-y-6">
-            <AuthGate />
+            <Suspense fallback={<AuthGateFallback />}>
+              <AuthGate />
+            </Suspense>
 
             <div className="rounded-2xl border bg-white p-6 shadow-sm">
               <h2 className="mb-4 text-xl font-semibold">Как всё работает</h2>
@@ -84,7 +95,7 @@ export default function Home() {
             <div className="rounded-2xl border bg-white p-5 shadow-sm">
               <h2 className="mb-2 text-lg font-semibold">Для кого этот сервис</h2>
               <p className="text-sm text-gray-600">
-                Для сотрудников, которые хотят брать дополнительные смены в удобных ресторанах
+                Для сотрудников компании Арт Рест, которые хотят брать дополнительные смены в удобных ресторанах
                 и видеть все свои отклики в одном месте.
               </p>
             </div>
