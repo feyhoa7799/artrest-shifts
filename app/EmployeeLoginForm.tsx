@@ -1,7 +1,7 @@
 'use client';
 
-import { FormEvent, useRef, useState } from 'react';
-import Turnstile, { type TurnstileInstance } from 'react-turnstile';
+import { FormEvent, useState } from 'react';
+import Turnstile from 'react-turnstile';
 import { supabase } from '@/lib/supabase';
 
 export default function EmployeeLoginForm() {
@@ -12,17 +12,11 @@ export default function EmployeeLoginForm() {
   const [codeSent, setCodeSent] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
-
-  const turnstileRef = useRef<TurnstileInstance | null>(null);
+  const [captchaKey, setCaptchaKey] = useState(0);
 
   const resetCaptcha = () => {
     setCaptchaToken(null);
-
-    try {
-      turnstileRef.current?.reset();
-    } catch {
-      // ничего не делаем
-    }
+    setCaptchaKey((prev) => prev + 1);
   };
 
   const validatePhone = (value: string) => /^\+7\d{10}$/.test(value);
@@ -126,7 +120,7 @@ export default function EmployeeLoginForm() {
 
           <div className="pt-1">
             <Turnstile
-              ref={turnstileRef}
+              key={captchaKey}
               sitekey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || ''}
               onVerify={(token) => {
                 setCaptchaToken(token);
