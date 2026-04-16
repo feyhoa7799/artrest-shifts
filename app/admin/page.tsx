@@ -1,5 +1,7 @@
+import Link from 'next/link';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import AdminDashboard from './AdminDashboard';
+import AdminAccessManager from './AdminAccessManager';
 
 type SearchParams = Promise<{
   tab?: string;
@@ -229,21 +231,40 @@ export default async function AdminPage(props: { searchParams: SearchParams }) {
   const editSlot = editId ? slots.find((slot) => slot.id === editId) || null : null;
 
   return (
-    <AdminDashboard
-      restaurants={restaurants}
-      openSlots={openSlots}
-      closedSlots={closedSlots}
-      assignedSlots={assignedSlots}
-      pendingApplications={pendingApplications}
-      approvedAppBySlotId={approvedAppBySlotId}
-      editSlot={editSlot}
-      tab={tab}
-      q={q}
-      restaurantFilter={restaurantFilter}
-      from={from}
-      to={to}
-      allSlots={slots}
-      employees={registeredEmployees}
-    />
+    <>
+      <div className="bg-[#fafafa] px-6 pt-6">
+        <div className="mx-auto max-w-7xl">
+          <Link
+            href="/"
+            className="inline-flex items-center text-sm font-medium text-red-600 hover:underline"
+          >
+            ← На главную
+          </Link>
+        </div>
+      </div>
+
+      <div className="bg-[#fafafa] px-6 pt-6">
+        <div className="mx-auto max-w-7xl">
+          <AdminAccessManager />
+        </div>
+      </div>
+
+      <AdminDashboard
+        restaurants={restaurants}
+        openSlots={openSlots}
+        closedSlots={closedSlots}
+        assignedSlots={assignedSlots}
+        pendingApplications={pendingApplications}
+        approvedAppBySlotId={approvedAppBySlotId}
+        editSlot={editSlot}
+        tab={tab}
+        q={q}
+        restaurantFilter={restaurantFilter}
+        from={from}
+        to={to}
+        allSlots={slots}
+        employees={registeredEmployees}
+      />
+    </>
   );
 }

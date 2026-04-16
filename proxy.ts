@@ -1,63 +1,70 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
-function unauthorized() {
-  return new NextResponse('Auth required', {
-    status: 401,
-    headers: {
-      'WWW-Authenticate': 'Basic realm="Admin"',
-      'Cache-Control': 'no-store',
-      'Content-Type': 'text/plain; charset=utf-8',
-      'X-Content-Type-Options': 'nosniff',
-      // Эти заголовки решают проблему «Подключение не защищено»
-      'Content-Security-Policy': 'upgrade-insecure-requests',
-      'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
-    },
-  });
+function redirectToHome(req: NextRequest, reason: 'login' | 'profile' | 'admin') {
+  const url = req.nextUrl.clone();
+  url.pathname = '/';
+
+  if (reason === 'login') {
+    url.searchParams.set('auth', 'login');
+  }
+
+  if (reason === 'profile') {
+    url.searchParams.set('auth', 'register');
+    url.searchParams.set('completeProfile', '1');
+  }
+
+  if (reason === 'admin') {
+    url.searchParams.set('auth', 'login');
+  }
+
+  return NextResponse.redirect(url);
+}
+
+function isProtectedWorkerPath(pathname: string) {
+  return (
+    pathname.startsWith('/slots') ||
+    pathname.startsWith('/my-applications') ||
+    pathname.startsWith('/restaurants')
+  );
+}
+
+function applyNoIndexHeader(response: NextResponse | Response) {
+  response.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
+  return response;
 }
 
 export function proxy(req: NextRequest) {
-  if (!req.nextUrl.pathname.startsWith('/admin')) {
-    return NextResponse.next();
-  }
+  const pathname = req.nextUrl.pathname;
+  const appAuth = req.cookies.get('app_auth')?.value === '1';
+  const appProfile = req.cookies.get('app_profile')?.value === '1';
+  const appAdmin = req.cookies.get('app_admin')?.value === '1';
 
-  const expectedUsername = process.env.ADMIN_USERNAME || 'admin';
-  const expectedPassword = process.env.ADMIN_PASSWORD;
-
-  if (!expectedPassword) {
-    return new NextResponse('Admin auth is not configured', {
-      status: 503,
-      headers: {
-        'Cache-Control': 'no-store',
-      },
-    });
-  }
-
-  const auth = req.headers.get('authorization');
-  if (!auth || !auth.startsWith('Basic ')) {
-    return unauthorized();
-  }
-
-  try {
-    const base64 = auth.split(' ')[1] || '';
-    const decoded = atob(base64);
-    const colonIndex = decoded.indexOf(':');
-    const username = colonIndex >= 0 ? decoded.slice(0, colonIndex) : '';
-    const password = colonIndex >= 0 ? decoded.slice(colonIndex + 1) : '';
-
-    if (username !== expectedUsername || password !== expectedPassword) {
-      return unauthorized();
+  if (pathname.startsWith('/admin')) {
+    if (!appAuth) {
+      return applyNoIndexHeader(redirectToHome(req, 'login'));
     }
 
-    const response = NextResponse.next();
-    response.headers.set('Cache-Control', 'no-store');
-    response.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
-    return response;
-  } catch {
-    return unauthorized();
+    if (!appAdmin) {
+      return applyNoIndexHeader(redirectToHome(req, 'admin'));
+    }
+
+    return applyNoIndexHeader(NextResponse.next());
   }
+
+  if (isProtectedWorkerPath(pathname)) {
+    if (!appAuth) {
+      return redirectToHome(req, 'login');
+    }
+
+    if (!appProfile) {
+      return redirectToHome(req, 'profile');
+    }
+  }
+
+  return NextResponse.next();
 }
 
 export const config = {
-  matcher: ['/admin/:path*'],
+  matcher: ['/admin/:path*', '/slots/:path*', '/my-applications/:path*', '/restaurants/:path*'],
 };
