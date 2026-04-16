@@ -1076,7 +1076,7 @@ export default function AuthGate() {
             </div>
           </div>
         ) : (
-          <>
+          <div className="space-y-6">
             <div className="grid gap-4 md:grid-cols-2">
               <div>
                 <label className="mb-1 block text-sm font-medium text-gray-700">ФИО</label>
@@ -1149,7 +1149,7 @@ export default function AuthGate() {
               </div>
             </div>
 
-            <div className="mt-4 flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={handleSaveProfile}
@@ -1167,11 +1167,11 @@ export default function AuthGate() {
                 Свернуть
               </button>
             </div>
-          </>
+
+            <ChangePasswordForm email={sessionUser.email || ''} />
+          </div>
         )}
       </div>
-
-      <ChangePasswordForm />
     </div>
   );
 }

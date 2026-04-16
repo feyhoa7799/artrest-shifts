@@ -39,7 +39,7 @@ function tabLabel(tab: TabKey) {
     case 'pending':
       return 'В ожидании';
     case 'active':
-      return 'Активные';
+      return 'Подтверждённые';
     case 'finished':
       return 'Завершённые';
     case 'rejected':
@@ -82,34 +82,37 @@ function formatDateTime(value: string) {
   }).format(new Date(value));
 }
 
+async function loadApplicationsFromApi() {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (!session?.access_token) {
+    return [];
+  }
+
+  const res = await fetch('/api/my-applications', {
+    headers: {
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    cache: 'no-store',
+  });
+
+  const data = await res.json();
+  return data.applications || [];
+}
+
 export default function MyApplications({ embedded = false }: MyApplicationsProps) {
   const [items, setItems] = useState<MyApplication[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<TabKey>('all');
 
-  async function loadApplications() {
+  async function reload() {
     setLoading(true);
 
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
-    if (!session?.access_token) {
-      setItems([]);
-      setLoading(false);
-      return;
-    }
-
     try {
-      const res = await fetch('/api/my-applications', {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        cache: 'no-store',
-      });
-
-      const data = await res.json();
-      setItems(data.applications || []);
+      const applications = await loadApplicationsFromApi();
+      setItems(applications);
     } catch {
       setItems([]);
     } finally {
@@ -118,12 +121,12 @@ export default function MyApplications({ embedded = false }: MyApplicationsProps
   }
 
   useEffect(() => {
-    loadApplications();
+    reload();
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(() => {
-      loadApplications();
+      reload();
     });
 
     return () => {
@@ -146,13 +149,28 @@ export default function MyApplications({ embedded = false }: MyApplicationsProps
     return items.filter((item) => item.derived_status === tab);
   }, [items, tab]);
 
+  const emptyText = useMemo(() => {
+    switch (tab) {
+      case 'pending':
+        return 'У вас пока нет откликов, которые находятся на рассмотрении.';
+      case 'active':
+        return 'У вас пока нет подтверждённых смен.';
+      case 'finished':
+        return 'У вас пока нет завершённых смен.';
+      case 'rejected':
+        return 'У вас пока нет отменённых откликов.';
+      default:
+        return 'Вы ещё не отправляли отклики на смены.';
+    }
+  }, [tab]);
+
   const body = (
     <div className="rounded-2xl border bg-white p-6 shadow-sm">
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-2xl font-semibold">Мои отклики</h2>
           <p className="mt-1 text-sm text-gray-600">
-            Здесь видны все ваши отправленные отклики и их текущий статус.
+            Здесь отображаются все ваши заявки на подработки и их текущий статус.
           </p>
         </div>
 
@@ -185,9 +203,7 @@ export default function MyApplications({ embedded = false }: MyApplicationsProps
       {loading ? (
         <div className="rounded-xl bg-gray-50 p-5 text-gray-500">Загрузка откликов...</div>
       ) : filteredItems.length === 0 ? (
-        <div className="rounded-xl bg-gray-50 p-5 text-gray-500">
-          В этой вкладке пока пусто.
-        </div>
+        <div className="rounded-xl bg-gray-50 p-5 text-gray-500">{emptyText}</div>
       ) : (
         <div className="space-y-4">
           {filteredItems.map((item) => (
@@ -215,23 +231,40 @@ export default function MyApplications({ embedded = false }: MyApplicationsProps
                 <p>
                   Время: {formatShiftTimeRange(item.time_from, item.time_to, item.overnight)}
                 </p>
-                <p>
-                  Оплата:{' '}
-                  {item.hourly_rate ? `${item.hourly_rate} ₽/час` : 'По договоренности'}
-                </p>
                 <p>Длительность: {formatHours(item.hours)}</p>
                 <p>Отклик отправлен: {formatDateTime(item.created_at)}</p>
               </div>
 
-              {item.derived_status === 'rejected' && item.rejection_reason && (
-                <div className="mt-3 rounded-xl bg-red-50 p-4 text-sm text-red-700">
-                  Причина: {item.rejection_reason}
+              {item.hourly_rate ? (
+                <div className="mt-3 rounded-xl bg-gray-50 p-4 text-sm text-gray-700">
+                  Оплата: {item.hourly_rate} ₽/час
+                </div>
+              ) : null}
+
+              {item.derived_status === 'pending' && (
+                <div className="mt-3 rounded-xl bg-yellow-50 p-4 text-sm text-yellow-700">
+                  Отклик отправлен. Дождитесь решения менеджера по этой смене.
                 </div>
               )}
 
               {item.derived_status === 'active' && (
                 <div className="mt-3 rounded-xl bg-green-50 p-4 text-sm text-green-700">
-                  Смена подтверждена. После завершения она перейдёт во вкладку «Завершённые».
+                  Смена подтверждена. После завершения она автоматически перейдёт во вкладку
+                  «Завершённые».
+                </div>
+              )}
+
+              {item.derived_status === 'finished' && (
+                <div className="mt-3 rounded-xl bg-blue-50 p-4 text-sm text-blue-700">
+                  Смена завершена и учтена в вашей статистике.
+                </div>
+              )}
+
+              {item.derived_status === 'rejected' && (
+                <div className="mt-3 rounded-xl bg-red-50 p-4 text-sm text-red-700">
+                  {item.rejection_reason
+                    ? `Причина отмены: ${item.rejection_reason}`
+                    : 'Отклик был отменён.'}
                 </div>
               )}
             </div>

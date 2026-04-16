@@ -4,7 +4,11 @@ import { useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { validatePasswordStrength } from '@/lib/password';
 
-export default function ChangePasswordForm() {
+type ChangePasswordFormProps = {
+  email?: string;
+};
+
+export default function ChangePasswordForm({ email }: ChangePasswordFormProps) {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [newPasswordRepeat, setNewPasswordRepeat] = useState('');
@@ -13,8 +17,8 @@ export default function ChangePasswordForm() {
   const [error, setError] = useState('');
 
   const passwordCheck = useMemo(
-    () => validatePasswordStrength(newPassword),
-    [newPassword]
+    () => validatePasswordStrength(newPassword, email),
+    [newPassword, email]
   );
 
   async function handleSubmit() {
@@ -48,15 +52,15 @@ export default function ChangePasswordForm() {
         data: { user },
       } = await supabase.auth.getUser();
 
-      const email = user?.email;
+      const actualEmail = user?.email;
 
-      if (!email) {
+      if (!actualEmail) {
         setError('Не удалось определить email пользователя');
         return;
       }
 
       const { error: reauthError } = await supabase.auth.signInWithPassword({
-        email,
+        email: actualEmail,
         password: currentPassword,
       });
 
@@ -84,10 +88,10 @@ export default function ChangePasswordForm() {
   }
 
   return (
-    <div className="rounded-2xl border bg-white p-6 shadow-sm">
-      <h3 className="mb-2 text-xl font-semibold">Изменить пароль</h3>
-      <p className="mb-5 text-sm text-gray-600">
-        Для смены пароля введите текущий пароль и дважды укажите новый.
+    <div className="rounded-2xl border bg-gray-50 p-5">
+      <h3 className="mb-2 text-lg font-semibold">Изменить пароль</h3>
+      <p className="mb-4 text-sm text-gray-600">
+        Укажите текущий пароль и дважды введите новый.
       </p>
 
       {notice && (
@@ -139,9 +143,9 @@ export default function ChangePasswordForm() {
           />
         </div>
 
-        <div className="rounded-xl bg-gray-50 p-4 text-sm text-gray-700">
+        <div className="rounded-xl bg-white p-4 text-sm text-gray-700">
           <p className="mb-2 font-medium">Требования к паролю:</p>
-          <ul className="list-disc pl-5 space-y-1">
+          <ul className="list-disc space-y-1 pl-5">
             <li>минимум 8 символов</li>
             <li>минимум 1 заглавная латинская буква</li>
             <li>минимум 1 строчная латинская буква</li>

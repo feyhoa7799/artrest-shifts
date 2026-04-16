@@ -175,12 +175,14 @@ export default async function RestaurantPage({ params }: PageProps) {
                     <div className="grid gap-2 text-sm text-gray-700 md:grid-cols-2">
                       <p>Дата: {formatDateRu(slot.work_date)}</p>
                       <p>Время: {formatShiftTimeRange(slot.time_from, slot.time_to, meta.overnight)}</p>
-                      <p>
-                        Оплата:{' '}
-                        {slot.hourly_rate ? `${slot.hourly_rate} ₽/час` : 'По договоренности'}
-                      </p>
                       <p>Длительность: {formatHours(meta.hours)}</p>
                     </div>
+
+                    {slot.hourly_rate ? (
+                      <div className="mt-3 rounded-xl bg-gray-50 p-4 text-sm text-gray-700">
+                        Оплата: {slot.hourly_rate} ₽/час
+                      </div>
+                    ) : null}
 
                     {slot.comment && (
                       <p className="mt-2 text-sm text-gray-500">{slot.comment}</p>

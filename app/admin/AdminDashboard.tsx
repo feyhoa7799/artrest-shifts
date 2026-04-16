@@ -407,10 +407,7 @@ export default function AdminDashboard({
           <p>Должность: {slot.position}</p>
           <p>Время: {formatShiftTimeRange(slot.time_from, slot.time_to, meta.overnight)}</p>
           <p>Длительность: {formatHours(meta.hours)}</p>
-          <p>
-            Оплата:{' '}
-            {slot.hourly_rate ? `${slot.hourly_rate} ₽/час` : 'Не указана'}
-          </p>
+          {slot.hourly_rate ? <p>Оплата: {slot.hourly_rate} ₽/час</p> : null}
           {restaurant?.metro && <p>Метро: {restaurant.metro}</p>}
         </div>
 
@@ -1093,9 +1090,12 @@ export default function AdminDashboard({
                         </div>
 
                         <div className="mt-3 rounded-xl bg-gray-50 p-4 text-sm text-gray-700">
-                          Оплата:{' '}
-                          {slot?.hourly_rate ? `${slot.hourly_rate} ₽/час` : 'Не указана'}
-                          <br />
+                          {slot?.hourly_rate ? (
+                            <>
+                              Оплата: {slot.hourly_rate} ₽/час
+                              <br />
+                            </>
+                          ) : null}
                           Длительность: {formatHours(shiftMeta.hours)}
                         </div>
 
