@@ -71,7 +71,7 @@ export default function EmployeeLoginForm() {
   return (
     <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-md">
       <h2 className="mb-4 text-2xl font-bold text-gray-900">
-        Авторизация сотрудника
+        Авторизация сотрудника TEST123
       </h2>
 
       {error ? (
@@ -119,6 +119,9 @@ export default function EmployeeLoginForm() {
           </div>
 
           <div className="pt-1">
+            <div className="rounded-lg border border-blue-300 bg-blue-50 px-4 py-3 text-sm text-blue-700">
+              TURNSTILE KEY: {process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ? 'ЕСТЬ' : 'НЕТ'}
+            </div>
             <Turnstile
               key={captchaKey}
               sitekey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || ''}
