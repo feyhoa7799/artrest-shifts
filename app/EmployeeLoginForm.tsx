@@ -1,7 +1,7 @@
 'use client';
 
 import { FormEvent, useRef, useState } from 'react';
-import HCaptcha from '@hcaptcha/react-hcaptcha';
+import Turnstile, { type TurnstileInstance } from 'react-turnstile';
 import { supabase } from '@/lib/supabase';
 
 export default function EmployeeLoginForm() {
@@ -13,16 +13,15 @@ export default function EmployeeLoginForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
 
-  const captchaRef = useRef<any>(null);
+  const turnstileRef = useRef<TurnstileInstance | null>(null);
 
   const resetCaptcha = () => {
     setCaptchaToken(null);
-    if (captchaRef.current) {
-      try {
-        captchaRef.current.resetCaptcha();
-      } catch {
-        // no-op
-      }
+
+    try {
+      turnstileRef.current?.reset();
+    } catch {
+      // ничего не делаем
     }
   };
 
@@ -67,7 +66,7 @@ export default function EmployeeLoginForm() {
       setCodeSent(true);
       setSuccessMessage('Письмо отправлено. Проверьте email, чтобы войти.');
       resetCaptcha();
-    } catch (err) {
+    } catch {
       setError('Не удалось отправить код. Попробуйте ещё раз.');
       resetCaptcha();
     } finally {
@@ -126,9 +125,9 @@ export default function EmployeeLoginForm() {
           </div>
 
           <div className="pt-1">
-            <HCaptcha
-              ref={captchaRef}
-              sitekey={process.env.NEXT_PUBLIC_HCAPTCHA_SITE_KEY || ''}
+            <Turnstile
+              ref={turnstileRef}
+              sitekey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || ''}
               onVerify={(token) => {
                 setCaptchaToken(token);
                 setError('');
