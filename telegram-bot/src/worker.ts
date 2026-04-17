@@ -6,6 +6,8 @@ import {
   REMINDER_RULES,
   buildManualTestMessage,
   buildNotificationKeyboard,
+  buildShiftApprovedMessage,
+  buildShiftCancelledMessage,
   buildShiftReminderMessage,
 } from './templates.js';
 
@@ -24,11 +26,12 @@ type NotificationJob = {
   error_message: string | null;
 };
 
-type ApprovedApplication = {
+type ApplicationRow = {
   id: number;
   slot_id: number;
   employee_user_id: string | null;
   status: 'pending' | 'approved' | 'rejected' | null;
+  rejection_reason: string | null;
 };
 
 type SlotRow = {
@@ -65,8 +68,27 @@ type NotificationLogRow = {
   status: 'sent' | 'error' | 'skipped';
 };
 
+function normalizeTimeForIso(value: string) {
+  const parts = value.split(':');
+  const hh = (parts[0] || '00').padStart(2, '0');
+  const mm = (parts[1] || '00').padStart(2, '0');
+  const ss = (parts[2] || '00').padStart(2, '0');
+  return `${hh}:${mm}:${ss}`;
+}
+
 function parseShiftStart(workDate: string, timeFrom: string) {
-  return new Date(`${workDate}T${timeFrom}:00+03:00`);
+  return new Date(`${workDate}T${normalizeTimeForIso(timeFrom)}+03:00`);
+}
+
+function parseShiftEnd(workDate: string, timeFrom: string, timeTo: string) {
+  const start = parseShiftStart(workDate, timeFrom);
+  const end = new Date(`${workDate}T${normalizeTimeForIso(timeTo)}+03:00`);
+
+  if (end.getTime() <= start.getTime()) {
+    end.setDate(end.getDate() + 1);
+  }
+
+  return end;
 }
 
 function minutesUntil(date: Date) {
@@ -104,7 +126,9 @@ async function writeLog(params: {
 async function processPendingJobs(bot: Telegraf) {
   const { data } = await supabase
     .from('telegram_notification_jobs')
-    .select('id, user_id, kind, payload, scheduled_for, status, created_at, sent_at, error_message')
+    .select(
+      'id, user_id, kind, payload, scheduled_for, status, created_at, sent_at, error_message'
+    )
     .eq('status', 'pending')
     .lte('scheduled_for', new Date().toISOString())
     .order('created_at', { ascending: true })
@@ -193,13 +217,12 @@ async function processPendingJobs(bot: Telegraf) {
   }
 }
 
-async function processShiftReminders(bot: Telegraf) {
+async function processShiftNotifications(bot: Telegraf) {
   const { data: applicationsData } = await supabase
     .from('applications')
-    .select('id, slot_id, employee_user_id, status')
-    .eq('status', 'approved');
+    .select('id, slot_id, employee_user_id, status, rejection_reason');
 
-  const applications = (applicationsData || []) as ApprovedApplication[];
+  const applications = (applicationsData || []) as ApplicationRow[];
 
   if (!applications.length) {
     return;
@@ -280,7 +303,6 @@ async function processShiftReminders(bot: Telegraf) {
 
     const slot = slotMap.get(app.slot_id);
     if (!slot) continue;
-    if (slot.status === 'closed') continue;
 
     const link = linkMap.get(app.employee_user_id);
     if (!link) continue;
@@ -290,8 +312,124 @@ async function processShiftReminders(bot: Telegraf) {
 
     const restaurant = restaurantMap.get(slot.restaurant_id);
     const startAt = parseShiftStart(slot.work_date, slot.time_from);
+    const endAt = parseShiftEnd(slot.work_date, slot.time_from, slot.time_to);
     const diffMinutes = minutesUntil(startAt);
+    const isFinished = endAt.getTime() < Date.now();
 
+    if (app.status === 'approved' && !isFinished) {
+      const approvedKey = `${app.id}:shift_approved`;
+
+      if (!sentKeys.has(approvedKey)) {
+        try {
+          const text = buildShiftApprovedMessage({
+            restaurantName: restaurant?.name || 'Ресторан',
+            workDate: slot.work_date,
+            timeFrom: slot.time_from,
+            timeTo: slot.time_to,
+          });
+
+          await bot.telegram.sendMessage(link.chat_id, text, {
+            reply_markup: buildNotificationKeyboard(),
+          });
+
+          await writeLog({
+            userId: app.employee_user_id,
+            applicationId: app.id,
+            telegramUserId: link.telegram_user_id,
+            notificationKind: 'shift_approved',
+            status: 'sent',
+            payload: {
+              slotId: slot.id,
+              restaurantId: slot.restaurant_id,
+              restaurantName: restaurant?.name || 'Ресторан',
+              workDate: slot.work_date,
+              timeFrom: slot.time_from,
+              timeTo: slot.time_to,
+            },
+          });
+
+          sentKeys.add(approvedKey);
+        } catch (error) {
+          await writeLog({
+            userId: app.employee_user_id,
+            applicationId: app.id,
+            telegramUserId: link.telegram_user_id,
+            notificationKind: 'shift_approved',
+            status: 'error',
+            payload: {
+              slotId: slot.id,
+              restaurantId: slot.restaurant_id,
+              workDate: slot.work_date,
+              timeFrom: slot.time_from,
+              timeTo: slot.time_to,
+            },
+            errorMessage: errorMessage(error),
+          });
+        }
+      }
+    }
+
+    if (
+      app.status === 'rejected' &&
+      app.rejection_reason !== 'Отклик отменён сотрудником'
+    ) {
+      const approvedKey = `${app.id}:shift_approved`;
+      const cancelledKey = `${app.id}:shift_cancelled`;
+
+      if (sentKeys.has(approvedKey) && !sentKeys.has(cancelledKey)) {
+        try {
+          const text = buildShiftCancelledMessage({
+            restaurantName: restaurant?.name || 'Ресторан',
+            workDate: slot.work_date,
+            timeFrom: slot.time_from,
+            timeTo: slot.time_to,
+          });
+
+          await bot.telegram.sendMessage(link.chat_id, text, {
+            reply_markup: buildNotificationKeyboard(),
+          });
+
+          await writeLog({
+            userId: app.employee_user_id,
+            applicationId: app.id,
+            telegramUserId: link.telegram_user_id,
+            notificationKind: 'shift_cancelled',
+            status: 'sent',
+            payload: {
+              slotId: slot.id,
+              restaurantId: slot.restaurant_id,
+              restaurantName: restaurant?.name || 'Ресторан',
+              workDate: slot.work_date,
+              timeFrom: slot.time_from,
+              timeTo: slot.time_to,
+              rejectionReason: app.rejection_reason,
+            },
+          });
+
+          sentKeys.add(cancelledKey);
+        } catch (error) {
+          await writeLog({
+            userId: app.employee_user_id,
+            applicationId: app.id,
+            telegramUserId: link.telegram_user_id,
+            notificationKind: 'shift_cancelled',
+            status: 'error',
+            payload: {
+              slotId: slot.id,
+              restaurantId: slot.restaurant_id,
+              workDate: slot.work_date,
+              timeFrom: slot.time_from,
+              timeTo: slot.time_to,
+              rejectionReason: app.rejection_reason,
+            },
+            errorMessage: errorMessage(error),
+          });
+        }
+      }
+    }
+
+    if (app.status !== 'approved') continue;
+    if (isFinished) continue;
     if (diffMinutes <= 0) continue;
 
     for (const rule of REMINDER_RULES) {
@@ -356,7 +494,7 @@ export function startWorker(bot: Telegraf) {
   const run = async () => {
     try {
       await processPendingJobs(bot);
-      await processShiftReminders(bot);
+      await processShiftNotifications(bot);
     } catch (error) {
       console.error('[telegram-bot] worker cycle failed:', error);
     }

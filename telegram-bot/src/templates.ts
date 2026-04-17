@@ -26,6 +26,13 @@ function formatDateRu(value: string) {
   return `${day}.${month}.${year}`;
 }
 
+function normalizeTimeForDisplay(value: string) {
+  const parts = value.split(':');
+  const hh = (parts[0] || '00').padStart(2, '0');
+  const mm = (parts[1] || '00').padStart(2, '0');
+  return `${hh}:${mm}`;
+}
+
 export function buildNotificationKeyboard() {
   return Markup.inlineKeyboard([
     [Markup.button.url('Мои отклики', `${config.appBaseUrl}/my-applications`)],
@@ -37,6 +44,44 @@ export function buildStartKeyboard() {
   return Markup.inlineKeyboard([
     [Markup.button.url('Мои отклики', `${config.appBaseUrl}/my-applications`)],
   ]).reply_markup;
+}
+
+export function buildShiftApprovedMessage(params: {
+  restaurantName: string;
+  workDate: string;
+  timeFrom: string;
+  timeTo: string;
+}) {
+  return [
+    'Смена подтверждена',
+    '',
+    `Ресторан: ${params.restaurantName}`,
+    `Дата: ${formatDateRu(params.workDate)}`,
+    `Время: ${normalizeTimeForDisplay(params.timeFrom)}–${normalizeTimeForDisplay(
+      params.timeTo
+    )}`,
+    '',
+    'Вы записаны на эту смену. Напоминания придут ближе к началу.',
+  ].join('\n');
+}
+
+export function buildShiftCancelledMessage(params: {
+  restaurantName: string;
+  workDate: string;
+  timeFrom: string;
+  timeTo: string;
+}) {
+  return [
+    'Смена отменена',
+    '',
+    `Ресторан: ${params.restaurantName}`,
+    `Дата: ${formatDateRu(params.workDate)}`,
+    `Время: ${normalizeTimeForDisplay(params.timeFrom)}–${normalizeTimeForDisplay(
+      params.timeTo
+    )}`,
+    '',
+    'Эта подтверждённая смена была отменена. Если есть вопросы, свяжитесь с HR-менеджером.',
+  ].join('\n');
 }
 
 export function buildShiftReminderMessage(params: {
@@ -51,7 +96,9 @@ export function buildShiftReminderMessage(params: {
     '',
     `Ресторан: ${params.restaurantName}`,
     `Дата: ${formatDateRu(params.workDate)}`,
-    `Время: ${params.timeFrom}–${params.timeTo}`,
+    `Время: ${normalizeTimeForDisplay(params.timeFrom)}–${normalizeTimeForDisplay(
+      params.timeTo
+    )}`,
     '',
     `До начала осталось ${params.label}.`,
   ].join('\n');
