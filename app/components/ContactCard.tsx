@@ -1,27 +1,43 @@
 import Link from 'next/link';
 
 export default function ContactCard() {
-  return (
-    <div className="rounded-2xl border bg-white p-5 shadow-sm">
-      <h2 className="mb-2 text-lg font-semibold">Обратная связь</h2>
+  const botUsername = (process.env.TELEGRAM_BOT_USERNAME || '').trim().replace(/^@/, '');
+  const botUrl = botUsername ? `https://t.me/${botUsername}` : null;
 
-      <p className="mb-4 text-sm text-gray-600">
+  return (
+    <section className="rounded-2xl border bg-white p-6 shadow-sm">
+      <h2 className="mb-2 text-2xl font-semibold text-gray-900">Обратная связь</h2>
+      <p className="mb-5 text-sm text-gray-600">
         Если у вас есть вопросы, предложения или замечания по работе сервиса подработок,
         напишите нам.
       </p>
 
-      <div className="space-y-3 text-sm text-gray-700">
-        <div>
-          <div className="font-medium text-gray-900">Email</div>
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="rounded-xl bg-gray-50 p-4">
+          <div className="mb-1 text-sm text-gray-500">Email</div>
           <a
             href="mailto:hr@akrussia.com"
-            className="text-red-600 hover:underline"
+            className="font-medium text-red-600 hover:underline"
           >
             hr@akrussia.com
-            @voice_ar_bot
           </a>
         </div>
+
+        <div className="rounded-xl bg-gray-50 p-4">
+          <div className="mb-1 text-sm text-gray-500">Бот-помощник</div>
+          {botUrl ? (
+            <Link
+              href={botUrl}
+              target="_blank"
+              className="font-medium text-red-600 hover:underline"
+            >
+              @{botUsername}
+            </Link>
+          ) : (
+            <div className="font-medium text-gray-400">Будет добавлен позже</div>
+          )}
+        </div>
       </div>
-    </div>
+    </section>
   );
 }
