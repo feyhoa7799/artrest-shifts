@@ -1117,8 +1117,6 @@ export default function AuthGate() {
           </div>
         )}
 
-        <TelegramLinkCard />
-
         {profile.is_blocked && (
           <div className="mb-4 rounded-xl bg-red-50 p-4 text-sm text-red-700">
             Ваш профиль заблокирован. Обратитесь в HR.
@@ -1226,6 +1224,8 @@ export default function AuthGate() {
                 </select>
               </div>
             </div>
+
+            <TelegramLinkCard />
 
             <div className="flex flex-wrap gap-2">
               <button

@@ -121,7 +121,7 @@ export default function TelegramLinkCard() {
       }
 
       setNotice(
-        'Открыли бота в новой вкладке. Нажми Start в Telegram, затем вернись и нажми "Проверить статус".'
+        'Открыли бота в новой вкладке. Нажми Start в Telegram, затем вернись и нажми «Проверить статус».'
       );
     } catch {
       setError('Ошибка создания ссылки Telegram');
@@ -178,12 +178,16 @@ export default function TelegramLinkCard() {
     }
   }
 
+  const isLinked = Boolean(status?.isLinked);
+
   return (
     <div className="rounded-2xl border bg-white p-6 shadow-sm">
-      <h3 className="mb-2 text-xl font-semibold">Telegram-уведомления</h3>
+      <h3 className="mb-2 text-xl font-semibold">Telegram</h3>
+
       <p className="mb-5 text-sm text-gray-600">
-        Здесь можно привязать Telegram и получать короткие напоминания по одобренным
-        сменам за 2 дня, 24 часа, 12 часов, 8 часов и 4 часа.
+        {isLinked
+          ? 'Аккаунт привязан'
+          : 'Здесь можно привязать Telegram и получать короткие напоминания по одобренным сменам за 2 дня, 24 часа, 12 часов, 8 часов и 4 часа.'}
       </p>
 
       {notice && (
@@ -204,7 +208,7 @@ export default function TelegramLinkCard() {
         </div>
       ) : (
         <>
-          {!status?.isLinked ? (
+          {!isLinked ? (
             <div className="mb-4 rounded-xl bg-yellow-50 p-4 text-sm text-yellow-800">
               Telegram пока не привязан. Нажми кнопку ниже, перейди в бота и нажми
               Start.
@@ -213,27 +217,27 @@ export default function TelegramLinkCard() {
             <div className="mb-4 grid gap-4 md:grid-cols-3">
               <div className="rounded-xl bg-gray-50 p-4">
                 <div className="mb-1 text-sm text-gray-500">Статус</div>
-                <div className="font-medium text-gray-900">Telegram подключён</div>
+                <div className="font-medium text-gray-900">Аккаунт привязан</div>
               </div>
 
               <div className="rounded-xl bg-gray-50 p-4">
-                <div className="mb-1 text-sm text-gray-500">Аккаунт</div>
+                <div className="mb-1 text-sm text-gray-500">Аккаунт Telegram</div>
                 <div className="font-medium text-gray-900">
-                  {status.telegramUsername || 'Привязан без username'}
+                  {status?.telegramUsername || 'Привязан без username'}
                 </div>
               </div>
 
               <div className="rounded-xl bg-gray-50 p-4">
                 <div className="mb-1 text-sm text-gray-500">Уведомления</div>
                 <div className="font-medium text-gray-900">
-                  {status.notificationsEnabled ? 'Включены' : 'Отключены'}
+                  {status?.notificationsEnabled ? 'Включены' : 'Отключены'}
                 </div>
               </div>
 
               <div className="rounded-xl bg-gray-50 p-4 md:col-span-3">
-                <div className="mb-1 text-sm text-gray-500">Привязка выполнена</div>
+                <div className="mb-1 text-sm text-gray-500">Дата привязки</div>
                 <div className="font-medium text-gray-900">
-                  {formatDateTime(status.linkedAt)}
+                  {formatDateTime(status?.linkedAt || null)}
                 </div>
               </div>
             </div>
@@ -248,7 +252,7 @@ export default function TelegramLinkCard() {
             >
               {saving
                 ? 'Подготавливаю ссылку...'
-                : status?.isLinked
+                : isLinked
                   ? 'Перепривязать Telegram'
                   : 'Привязать Telegram'}
             </button>
@@ -273,14 +277,14 @@ export default function TelegramLinkCard() {
               </a>
             )}
 
-            {status?.isLinked && (
+            {isLinked && (
               <button
                 type="button"
-                onClick={() => void handleToggle(!status.notificationsEnabled)}
+                onClick={() => void handleToggle(!(status?.notificationsEnabled ?? true))}
                 disabled={saving}
                 className="rounded-lg border px-4 py-3 text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {status.notificationsEnabled
+                {status?.notificationsEnabled
                   ? 'Отключить уведомления'
                   : 'Включить уведомления'}
               </button>
