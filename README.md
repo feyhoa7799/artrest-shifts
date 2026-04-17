@@ -1,36 +1,67 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# artrest-shifts
 
-## Getting Started
+Внутренний сервис подработок для сотрудников Арт Рест / ROSTIC’S.
 
-First, run the development server:
+Проект позволяет сотруднику:
+- зарегистрироваться или войти в личный кабинет;
+- заполнить профиль сотрудника;
+- увидеть доступные смены;
+- откликнуться на смену;
+- отслеживать свои отклики;
+- работать с картой ресторанов и слотами.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+Для администраторов есть отдельный раздел управления слотами, откликами, сотрудниками и доступом к админке.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+---
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Стек
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- Next.js 16
+- TypeScript
+- Supabase
+- Yandex Maps
+- Cloudflare Turnstile
+- Docker / Docker Compose
 
-## Learn More
+---
 
-To learn more about Next.js, take a look at the following resources:
+## Основные возможности
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### Для сотрудника
+- регистрация по email с подтверждением;
+- вход по email и паролю;
+- восстановление пароля;
+- заполнение профиля;
+- просмотр открытых смен;
+- отклик на смену;
+- просмотр собственных откликов.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### Для администратора
+- просмотр открытых, назначенных, закрытых и нереализованных смен;
+- работа с откликами;
+- блокировка сотрудников;
+- управление горячими сменами;
+- управление доступом к админке;
+- аудит выдачи и отзыва админских прав.
 
-## Deploy on Vercel
+---
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Основные маршруты
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- `/` — главная страница, вход и регистрация
+- `/slots` — открытые смены
+- `/my-applications` — мои отклики
+- `/admin` — админ-панель
+- `/privacy` — политика обработки персональных данных
+- `/reset-password` — смена пароля по ссылке из письма
+
+---
+
+## Переменные окружения
+
+### Публичные
+```env
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+NEXT_PUBLIC_YANDEX_MAP_API_KEY=
+NEXT_PUBLIC_TURNSTILE_SITE_KEY=

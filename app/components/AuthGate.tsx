@@ -553,16 +553,25 @@ export default function AuthGate() {
       return;
     }
 
+    if (!captchaToken) {
+      showError('Подтвердите, что вы не робот');
+      return;
+    }
+
     setLoggingIn(true);
 
     try {
       const { error } = await supabase.auth.signInWithPassword({
         email: loginEmail.trim(),
         password: loginPassword,
+        options: {
+          captchaToken,
+        },
       });
 
       if (error) {
         showError(error.message);
+        resetCaptcha();
         return;
       }
 
@@ -574,6 +583,7 @@ export default function AuthGate() {
       }
 
       showNotice('Вход выполнен.');
+      resetCaptcha();
       await hydrate();
     } finally {
       setLoggingIn(false);
@@ -588,6 +598,11 @@ export default function AuthGate() {
       return;
     }
 
+    if (!captchaToken) {
+      showError('Подтвердите, что вы не робот');
+      return;
+    }
+
     setSendingReset(true);
 
     try {
@@ -598,14 +613,17 @@ export default function AuthGate() {
 
       const { error } = await supabase.auth.resetPasswordForEmail(loginEmail.trim(), {
         redirectTo,
+        captchaToken,
       });
 
       if (error) {
         showError(error.message);
+        resetCaptcha();
         return;
       }
 
       showNotice('Письмо для восстановления пароля отправлено.');
+      resetCaptcha();
     } finally {
       setSendingReset(false);
     }
@@ -804,6 +822,7 @@ export default function AuthGate() {
               setMode('login');
               setError('');
               setNotice('');
+              resetCaptcha();
             }}
             className={`rounded-full px-4 py-2 text-sm ${
               mode === 'login'
@@ -876,11 +895,29 @@ export default function AuthGate() {
                 />
               </div>
 
+              <div className="rounded-2xl border bg-gray-50 p-4">
+                <Turnstile
+                  key={captchaKey}
+                  sitekey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || ''}
+                  onVerify={(token) => {
+                    setCaptchaToken(token);
+                    setError('');
+                  }}
+                  onExpire={() => {
+                    setCaptchaToken(null);
+                  }}
+                  onError={() => {
+                    setCaptchaToken(null);
+                    showError('Ошибка проверки CAPTCHA. Попробуйте ещё раз.');
+                  }}
+                />
+              </div>
+
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={handleLogin}
-                  disabled={loggingIn}
+                  disabled={loggingIn || !captchaToken}
                   className="rounded-lg bg-red-500 px-4 py-3 text-white hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {loggingIn ? 'Вхожу...' : 'Войти'}
@@ -889,7 +926,7 @@ export default function AuthGate() {
                 <button
                   type="button"
                   onClick={handleForgotPassword}
-                  disabled={sendingReset}
+                  disabled={sendingReset || !captchaToken}
                   className="rounded-lg border px-4 py-3 text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {sendingReset ? 'Отправляю...' : 'Забыли пароль?'}

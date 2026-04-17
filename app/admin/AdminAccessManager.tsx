@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+
 import { supabase } from '@/lib/supabase';
 
 type AdminItem = {
@@ -10,6 +11,27 @@ type AdminItem = {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  source?: 'db' | 'env';
+};
+
+type AuditItem = {
+  id: number;
+  actor_user_id: string | null;
+  actor_email: string;
+  target_email: string;
+  action: 'grant' | 'revoke';
+  assigned_role: 'admin' | 'superadmin' | null;
+  created_at: string;
+};
+
+type AccessResponse = {
+  items: AdminItem[];
+  audit: AuditItem[];
+  configuredSuperadminEmail: string | null;
+};
+
+type MeResponse = {
+  isSuperadmin: boolean;
 };
 
 async function getAccessToken() {
@@ -20,7 +42,7 @@ async function getAccessToken() {
   return session?.access_token || null;
 }
 
-async function fetchJson(path: string, init?: RequestInit) {
+async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const token = await getAccessToken();
 
   if (!token) {
@@ -43,15 +65,49 @@ async function fetchJson(path: string, init?: RequestInit) {
     throw new Error(data?.error || 'Ошибка запроса');
   }
 
-  return data;
+  return data as T;
+}
+
+function formatDateTime(value: string) {
+  if (!value) return '—';
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return value;
+
+  return new Intl.DateTimeFormat('ru-RU', {
+    dateStyle: 'short',
+    timeStyle: 'short',
+  }).format(date);
+}
+
+function formatRole(role: 'admin' | 'superadmin') {
+  return role === 'superadmin' ? 'Суперюзер' : 'Администратор';
+}
+
+function formatAssignedRole(role: 'admin' | 'superadmin' | null) {
+  if (role === 'superadmin') return 'superadmin';
+  if (role === 'admin') return 'admin';
+  return '—';
+}
+
+function formatAction(action: 'grant' | 'revoke') {
+  return action === 'grant' ? 'Выдача доступа' : 'Отзыв доступа';
 }
 
 export default function AdminAccessManager() {
   const [loading, setLoading] = useState(true);
   const [allowed, setAllowed] = useState(false);
+
   const [items, setItems] = useState<AdminItem[]>([]);
+  const [audit, setAudit] = useState<AuditItem[]>([]);
+  const [configuredSuperadminEmail, setConfiguredSuperadminEmail] = useState<string | null>(
+    null
+  );
+
   const [email, setEmail] = useState('');
   const [saving, setSaving] = useState(false);
+
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
 
@@ -60,28 +116,37 @@ export default function AdminAccessManager() {
     setError('');
 
     try {
-      const me = await fetchJson('/api/admin/me');
+      const me = await fetchJson<MeResponse>('/api/admin/me');
 
       if (!me.isSuperadmin) {
         setAllowed(false);
         setItems([]);
+        setAudit([]);
+        setConfiguredSuperadminEmail(null);
         return;
       }
 
-      const data = await fetchJson('/api/admin/access');
+      const data = await fetchJson<AccessResponse>('/api/admin/access');
+
       setAllowed(true);
       setItems(data.items || []);
+      setAudit(data.audit || []);
+      setConfiguredSuperadminEmail(data.configuredSuperadminEmail || null);
     } catch (err) {
       setAllowed(false);
       setItems([]);
-      setError(err instanceof Error ? err.message : 'Ошибка загрузки администраторов');
+      setAudit([]);
+      setConfiguredSuperadminEmail(null);
+      setError(
+        err instanceof Error ? err.message : 'Ошибка загрузки администраторов'
+      );
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    load();
+    void load();
   }, []);
 
   async function handleGrant() {
@@ -96,17 +161,22 @@ export default function AdminAccessManager() {
     setSaving(true);
 
     try {
-      await fetchJson('/api/admin/access', {
-        method: 'POST',
-        body: JSON.stringify({
-          action: 'grant',
-          email: email.trim(),
-        }),
-      });
+      const data = await fetchJson<AccessResponse & { success: true }>(
+        '/api/admin/access',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            action: 'grant',
+            email: email.trim(),
+          }),
+        }
+      );
 
-      setNotice('Доступ администратора выдан');
+      setItems(data.items || []);
+      setAudit(data.audit || []);
+      setConfiguredSuperadminEmail(data.configuredSuperadminEmail || null);
       setEmail('');
-      await load();
+      setNotice('Доступ администратора выдан');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка выдачи доступа');
     } finally {
@@ -117,19 +187,25 @@ export default function AdminAccessManager() {
   async function handleRevoke(targetEmail: string) {
     setError('');
     setNotice('');
+
     setSaving(true);
 
     try {
-      await fetchJson('/api/admin/access', {
-        method: 'POST',
-        body: JSON.stringify({
-          action: 'revoke',
-          email: targetEmail,
-        }),
-      });
+      const data = await fetchJson<AccessResponse & { success: true }>(
+        '/api/admin/access',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            action: 'revoke',
+            email: targetEmail,
+          }),
+        }
+      );
 
+      setItems(data.items || []);
+      setAudit(data.audit || []);
+      setConfiguredSuperadminEmail(data.configuredSuperadminEmail || null);
       setNotice('Доступ администратора отозван');
-      await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка отзыва доступа');
     } finally {
@@ -139,7 +215,7 @@ export default function AdminAccessManager() {
 
   if (loading) {
     return (
-      <div className="rounded-2xl border bg-white p-5 shadow-sm">
+      <div className="rounded-2xl border bg-white p-6 shadow-sm">
         Загрузка списка администраторов...
       </div>
     );
@@ -147,81 +223,95 @@ export default function AdminAccessManager() {
 
   if (!allowed) {
     return error ? (
-      <div className="rounded-2xl border bg-white p-5 shadow-sm">
+      <div className="rounded-2xl border bg-white p-6 shadow-sm">
         <div className="rounded-xl bg-red-50 p-4 text-sm text-red-700">{error}</div>
       </div>
     ) : null;
   }
 
   return (
-    <div className="rounded-2xl border bg-white p-5 shadow-sm">
-      <h2 className="mb-2 text-xl font-semibold">Управление администраторами</h2>
-      <p className="mb-5 text-sm text-gray-600">
-        Этот блок виден только суперюзеру. Здесь можно выдавать и отзывать доступ к админке.
-      </p>
+    <div className="space-y-6">
+      <section className="rounded-2xl border bg-white p-6 shadow-sm">
+        <h2 className="mb-2 text-2xl font-semibold">Управление администраторами</h2>
+        <p className="mb-5 text-sm text-gray-600">
+          Этот блок виден только суперюзеру. Здесь можно выдавать и отзывать доступ
+          к админке.
+        </p>
 
-      {notice && (
-        <div className="mb-4 rounded-xl bg-green-50 p-4 text-sm text-green-700">
-          {notice}
+        {configuredSuperadminEmail && (
+          <div className="mb-4 rounded-xl bg-gray-50 p-4 text-sm text-gray-700">
+            Суперюзер из конфигурации: <b>{configuredSuperadminEmail}</b>
+          </div>
+        )}
+
+        {notice && (
+          <div className="mb-4 rounded-xl bg-green-50 p-4 text-sm text-green-700">
+            {notice}
+          </div>
+        )}
+
+        {error && (
+          <div className="mb-4 rounded-xl bg-red-50 p-4 text-sm text-red-700">
+            {error}
+          </div>
+        )}
+
+        <div className="mb-6 flex flex-col gap-3 md:flex-row">
+          <input
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="Введите email сотрудника"
+            className="w-full rounded-lg border p-3"
+          />
+
+          <button
+            type="button"
+            onClick={handleGrant}
+            disabled={saving}
+            className="rounded-lg bg-red-500 px-4 py-3 text-white hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {saving ? 'Сохраняю...' : 'Выдать доступ'}
+          </button>
         </div>
-      )}
 
-      {error && (
-        <div className="mb-4 rounded-xl bg-red-50 p-4 text-sm text-red-700">
-          {error}
-        </div>
-      )}
-
-      <div className="mb-5 flex flex-col gap-3 md:flex-row">
-        <input
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="Введите email сотрудника"
-          className="w-full rounded-lg border p-3"
-        />
-
-        <button
-          type="button"
-          onClick={handleGrant}
-          disabled={saving}
-          className="rounded-lg bg-red-500 px-4 py-3 text-white hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {saving ? 'Сохраняю...' : 'Выдать доступ'}
-        </button>
-      </div>
-
-      <div className="space-y-3">
         {items.length === 0 ? (
-          <div className="rounded-xl bg-gray-50 p-4 text-sm text-gray-500">
+          <div className="rounded-xl bg-gray-50 p-4 text-sm text-gray-700">
             Активных администраторов пока нет.
           </div>
         ) : (
-          items.map((item) => {
-            const isSuperadmin = item.role === 'superadmin';
+          <div className="space-y-3">
+            {items.map((item) => {
+              const isSuperadmin = item.role === 'superadmin';
+              const isEnvSource = item.source === 'env';
 
-            return (
-              <div
-                key={`${item.email}-${item.role}`}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4"
-              >
-                <div>
-                  <div className="font-medium">{item.email}</div>
-                  <div className="mt-1 text-sm text-gray-500">
-                    {isSuperadmin ? 'Суперюзер' : 'Администратор'}
+              return (
+                <div
+                  key={`${item.email}-${item.id}`}
+                  className="flex flex-col gap-3 rounded-xl border p-4 md:flex-row md:items-center md:justify-between"
+                >
+                  <div>
+                    <div className="font-medium text-gray-900">{item.email}</div>
+
+                    <div className="mt-1 flex flex-wrap gap-2 text-xs text-gray-600">
+                      <span className="rounded-full bg-gray-100 px-2 py-1">
+                        {formatRole(item.role)}
+                      </span>
+
+                      <span className="rounded-full bg-gray-100 px-2 py-1">
+                        {isSuperadmin ? 'superadmin' : 'admin'}
+                      </span>
+
+                      {isEnvSource && (
+                        <span className="rounded-full bg-yellow-100 px-2 py-1 text-yellow-800">
+                          env
+                        </span>
+                      )}
+
+                      <span className="rounded-full bg-gray-100 px-2 py-1">
+                        Обновлён: {formatDateTime(item.updated_at)}
+                      </span>
+                    </div>
                   </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <span
-                    className={`rounded-full px-3 py-1 text-sm ${
-                      isSuperadmin
-                        ? 'bg-purple-100 text-purple-700'
-                        : 'bg-blue-100 text-blue-700'
-                    }`}
-                  >
-                    {isSuperadmin ? 'superadmin' : 'admin'}
-                  </span>
 
                   {!isSuperadmin && (
                     <button
@@ -234,11 +324,58 @@ export default function AdminAccessManager() {
                     </button>
                   )}
                 </div>
-              </div>
-            );
-          })
+              );
+            })}
+          </div>
         )}
-      </div>
+      </section>
+
+      <section className="rounded-2xl border bg-white p-6 shadow-sm">
+        <h3 className="mb-2 text-xl font-semibold">История изменений доступа</h3>
+        <p className="mb-5 text-sm text-gray-600">
+          Последние действия по выдаче и отзыву прав администратора.
+        </p>
+
+        {audit.length === 0 ? (
+          <div className="rounded-xl bg-gray-50 p-4 text-sm text-gray-700">
+            История пока пуста.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {audit.map((item) => (
+              <div
+                key={item.id}
+                className="rounded-xl border p-4"
+              >
+                <div className="mb-2 flex flex-wrap items-center gap-2 text-sm">
+                  <span className="rounded-full bg-gray-100 px-2 py-1 text-gray-700">
+                    {formatAction(item.action)}
+                  </span>
+
+                  <span className="rounded-full bg-gray-100 px-2 py-1 text-gray-700">
+                    Роль: {formatAssignedRole(item.assigned_role)}
+                  </span>
+
+                  <span className="rounded-full bg-gray-100 px-2 py-1 text-gray-700">
+                    {formatDateTime(item.created_at)}
+                  </span>
+                </div>
+
+                <div className="text-sm text-gray-700">
+                  <div>
+                    <span className="text-gray-500">Кто выполнил:</span>{' '}
+                    <b>{item.actor_email || '—'}</b>
+                  </div>
+                  <div className="mt-1">
+                    <span className="text-gray-500">Для кого:</span>{' '}
+                    <b>{item.target_email}</b>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   );
 }

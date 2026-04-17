@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
+
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import {
   SUPERADMIN_EMAIL,
   getAdminAccessByEmail,
+  isConfiguredSuperadminEmail,
   listActiveAdminUsers,
+  listAdminAccessAudit,
   normalizeAdminEmail,
+  writeAdminAccessAudit,
+  type AdminRole,
 } from '@/lib/admin-access';
 
 async function getCurrentUserFromToken(req: NextRequest) {
@@ -36,11 +41,21 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Недостаточно прав' }, { status: 403 });
     }
 
-    const items = await listActiveAdminUsers();
+    const [items, audit] = await Promise.all([
+      listActiveAdminUsers(),
+      listAdminAccessAudit(50),
+    ]);
 
-    return NextResponse.json({ items });
+    return NextResponse.json({
+      items,
+      audit,
+      configuredSuperadminEmail: SUPERADMIN_EMAIL || null,
+    });
   } catch {
-    return NextResponse.json({ error: 'Ошибка загрузки администраторов' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Ошибка загрузки администраторов' },
+      { status: 500 }
+    );
   }
 }
 
@@ -59,21 +74,23 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const action = String(body.action || '').trim();
-    const targetEmail = normalizeAdminEmail(body.email);
+    const action = String(body?.action || '').trim();
+    const targetEmail = normalizeAdminEmail(body?.email);
 
     if (!targetEmail) {
       return NextResponse.json({ error: 'Введите email' }, { status: 400 });
     }
 
     if (action === 'grant') {
-      const role = targetEmail === SUPERADMIN_EMAIL ? 'superadmin' : 'admin';
+      const role: AdminRole =
+        isConfiguredSuperadminEmail(targetEmail) ? 'superadmin' : 'admin';
 
       const { error } = await supabaseAdmin.from('admin_users').upsert(
         {
           email: targetEmail,
           role,
           is_active: true,
+          updated_at: new Date().toISOString(),
         },
         { onConflict: 'email' }
       );
@@ -82,27 +99,66 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: error.message }, { status: 500 });
       }
 
-      return NextResponse.json({ success: true });
+      await writeAdminAccessAudit({
+        actorUserId: user.id,
+        actorEmail: user.email,
+        targetEmail,
+        action: 'grant',
+        assignedRole: role,
+      });
+
+      const [items, audit] = await Promise.all([
+        listActiveAdminUsers(),
+        listAdminAccessAudit(50),
+      ]);
+
+      return NextResponse.json({
+        success: true,
+        items,
+        audit,
+        configuredSuperadminEmail: SUPERADMIN_EMAIL || null,
+      });
     }
 
     if (action === 'revoke') {
-      if (targetEmail === SUPERADMIN_EMAIL) {
+      if (isConfiguredSuperadminEmail(targetEmail)) {
         return NextResponse.json(
-          { error: 'Нельзя отозвать права у суперюзера' },
+          { error: 'Нельзя отозвать права у суперюзера из конфигурации' },
           { status: 400 }
         );
       }
 
       const { error } = await supabaseAdmin
         .from('admin_users')
-        .update({ is_active: false })
+        .update({
+          is_active: false,
+          updated_at: new Date().toISOString(),
+        })
         .eq('email', targetEmail);
 
       if (error) {
         return NextResponse.json({ error: error.message }, { status: 500 });
       }
 
-      return NextResponse.json({ success: true });
+      await writeAdminAccessAudit({
+        actorUserId: user.id,
+        actorEmail: user.email,
+        targetEmail,
+        action: 'revoke',
+        assignedRole: null,
+      });
+
+      const [items, audit] = await Promise.all([
+        listActiveAdminUsers(),
+        listAdminAccessAudit(50),
+      ]);
+
+      return NextResponse.json({
+        success: true,
+        items,
+        audit,
+        configuredSuperadminEmail: SUPERADMIN_EMAIL || null,
+      });
     }
 
     return NextResponse.json({ error: 'Неизвестное действие' }, { status: 400 });
