@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
 import { supabase } from '@/lib/supabase';
@@ -232,11 +233,22 @@ export default function AdminAccessManager() {
   return (
     <div className="space-y-6">
       <section className="rounded-2xl border bg-white p-6 shadow-sm">
-        <h2 className="mb-2 text-2xl font-semibold">Управление администраторами</h2>
-        <p className="mb-5 text-sm text-gray-600">
-          Этот блок виден только суперюзеру. Здесь можно выдавать и отзывать доступ
-          к админке.
-        </p>
+        <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="mb-2 text-2xl font-semibold">Управление администраторами</h2>
+            <p className="text-sm text-gray-600">
+              Этот блок виден только суперюзеру. Здесь можно выдавать и отзывать доступ
+              к админке.
+            </p>
+          </div>
+
+          <Link
+            href="/admin/telegram"
+            className="rounded-lg border px-4 py-3 text-sm text-gray-700 hover:bg-gray-50"
+          >
+            Telegram-уведомления
+          </Link>
+        </div>
 
         {configuredSuperadminEmail && (
           <div className="mb-4 rounded-xl bg-gray-50 p-4 text-sm text-gray-700">

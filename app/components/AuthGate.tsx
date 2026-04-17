@@ -8,6 +8,7 @@ import Turnstile from 'react-turnstile';
 import { supabase } from '@/lib/supabase';
 import { validatePasswordStrength } from '@/lib/password';
 import ChangePasswordForm from '@/app/components/ChangePasswordForm';
+import TelegramLinkCard from '@/app/components/TelegramLinkCard';
 
 const ROLES = [
   'Член команды',
@@ -1115,6 +1116,8 @@ export default function AuthGate() {
             {error}
           </div>
         )}
+
+        <TelegramLinkCard />
 
         {profile.is_blocked && (
           <div className="mb-4 rounded-xl bg-red-50 p-4 text-sm text-red-700">

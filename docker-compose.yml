@@ -17,5 +17,23 @@ services:
       HOSTNAME: 0.0.0.0
       ADMIN_USERNAME: ${ADMIN_USERNAME}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME}
     ports:
       - "8080:443"
+
+  telegram-bot:
+    build:
+      context: ./telegram-bot
+    container_name: artrest-shifts-telegram-bot
+    restart: always
+    env_file:
+      - .env.production
+    environment:
+      NODE_ENV: production
+      APP_BASE_URL: ${APP_BASE_URL}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+    depends_on:
+      - app
