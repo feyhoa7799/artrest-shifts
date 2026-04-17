@@ -1,5 +1,37 @@
 import { NextRequest, NextResponse } from 'next/server';
+
 import { supabaseAdmin } from '@/lib/supabase-admin';
+
+type EmployeeProfileRow = {
+  user_id: string;
+  email: string;
+  full_name: string;
+  phone: string;
+  role: string;
+  home_restaurant_id: number;
+};
+
+type SlotRow = {
+  id: number;
+  restaurant_id: number;
+  work_date: string;
+  time_from: string;
+  time_to: string;
+  position: string | null;
+  status: string;
+};
+
+type RestaurantRow = {
+  id: number;
+  name: string;
+};
+
+type ApplicationRow = {
+  id: number;
+  slot_id: number;
+  employee_user_id: string;
+  status: 'pending' | 'approved' | 'rejected';
+};
 
 export async function POST(req: NextRequest) {
   try {
@@ -17,6 +49,7 @@ export async function POST(req: NextRequest) {
     }
 
     const user = userData.user;
+
     const body = await req.json();
     const slotId = Number(body.slotId);
 
@@ -37,15 +70,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const employeeProfile = profile as EmployeeProfileRow;
+
     const { data: homeRestaurant } = await supabaseAdmin
       .from('restaurants')
-      .select('name')
-      .eq('id', profile.home_restaurant_id)
+      .select('id, name')
+      .eq('id', employeeProfile.home_restaurant_id)
       .single();
 
     const { data: slot, error: slotError } = await supabaseAdmin
       .from('slots')
-      .select('id, status')
+      .select('id, restaurant_id, work_date, time_from, time_to, position, status')
       .eq('id', slotId)
       .single();
 
@@ -53,7 +88,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Слот не найден' }, { status: 404 });
     }
 
-    if (slot.status !== 'open') {
+    const currentSlot = slot as SlotRow;
+
+    if (currentSlot.status !== 'open') {
       return NextResponse.json(
         { error: 'Этот слот уже недоступен' },
         { status: 400 }
@@ -75,29 +112,57 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const { data: userApplications } = await supabaseAdmin
+      .from('applications')
+      .select('id, slot_id, employee_user_id, status')
+      .eq('employee_user_id', user.id)
+      .in('status', ['pending', 'approved']);
+
+    const activeApplications = (userApplications || []) as ApplicationRow[];
+
+    if (activeApplications.length > 0) {
+      const activeSlotIds = activeApplications.map((item) => item.slot_id);
+
+      const { data: activeSlots } = await supabaseAdmin
+        .from('slots')
+        .select('id, work_date')
+        .in('id', activeSlotIds);
+
+      const hasSameDate = (activeSlots || []).some(
+        (item) => item.work_date === currentSlot.work_date
+      );
+
+      if (hasSameDate) {
+        return NextResponse.json(
+          {
+            error:
+              'На эту дату у вас уже есть отклик. Сначала отмените предыдущий отклик или дождитесь решения по нему.',
+          },
+          { status: 400 }
+        );
+      }
+    }
+
     const { error: applicationError } = await supabaseAdmin
       .from('applications')
       .insert([
         {
           slot_id: slotId,
-          full_name: profile.full_name,
+          full_name: employeeProfile.full_name,
           home_restaurant: homeRestaurant?.name || 'Не указан',
-          contact: profile.phone,
+          contact: employeeProfile.phone,
           comment: '',
           status: 'pending',
           employee_user_id: user.id,
-          employee_email: profile.email,
-          employee_phone: profile.phone,
-          employee_role: profile.role,
-          employee_home_restaurant_id: profile.home_restaurant_id,
+          employee_email: employeeProfile.email,
+          employee_phone: employeeProfile.phone,
+          employee_role: employeeProfile.role,
+          employee_home_restaurant_id: employeeProfile.home_restaurant_id,
         },
       ]);
 
     if (applicationError) {
-      return NextResponse.json(
-        { error: applicationError.message },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: applicationError.message }, { status: 500 });
     }
 
     const { error: slotUpdateError } = await supabaseAdmin
@@ -106,14 +171,11 @@ export async function POST(req: NextRequest) {
       .eq('id', slotId);
 
     if (slotUpdateError) {
-      return NextResponse.json(
-        { error: slotUpdateError.message },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: slotUpdateError.message }, { status: 500 });
     }
 
     return NextResponse.json({ success: true });
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: 'Ошибка сервера при отклике' },
       { status: 500 }

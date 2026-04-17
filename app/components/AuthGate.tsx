@@ -9,6 +9,7 @@ import { supabase } from '@/lib/supabase';
 import { validatePasswordStrength } from '@/lib/password';
 import ChangePasswordForm from '@/app/components/ChangePasswordForm';
 import TelegramLinkCard from '@/app/components/TelegramLinkCard';
+import ApprovedShiftsCard from '@/app/components/ApprovedShiftsCard';
 
 const ROLES = [
   'Член команды',
@@ -1069,24 +1070,6 @@ export default function AuthGate() {
               </Link>
             )}
 
-            {profileReady && !profile.is_blocked && (
-              <>
-                <Link
-                  href="/slots"
-                  className="rounded-lg bg-red-500 px-4 py-2 text-sm text-white hover:bg-red-600"
-                >
-                  Открытые смены
-                </Link>
-
-                <Link
-                  href="/my-applications"
-                  className="rounded-lg border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                >
-                  Мои отклики
-                </Link>
-              </>
-            )}
-
             <button
               type="button"
               onClick={() => setProfileEditorOpen((prev) => !prev)}
@@ -1116,6 +1099,35 @@ export default function AuthGate() {
             {error}
           </div>
         )}
+
+        {profileReady && !profile.is_blocked && (
+          <div className="mb-6 rounded-2xl border bg-red-50 p-5">
+            <div className="mb-3 text-lg font-semibold text-gray-900">
+              Куда нажать, чтобы выбрать смену?
+            </div>
+            <p className="mb-4 text-sm text-gray-700">
+              Нажмите кнопку ниже, чтобы перейти к выбору ресторана и открытых смен.
+            </p>
+
+            <div className="flex flex-wrap gap-2">
+              <Link
+                href="/slots"
+                className="rounded-lg bg-red-500 px-4 py-3 text-white hover:bg-red-600"
+              >
+                Выбрать ресторан и смену
+              </Link>
+
+              <Link
+                href="/my-applications"
+                className="rounded-lg border px-4 py-3 text-gray-700 hover:bg-gray-50"
+              >
+                Мои отклики
+              </Link>
+            </div>
+          </div>
+        )}
+
+        <ApprovedShiftsCard />
 
         {profile.is_blocked && (
           <div className="mb-4 rounded-xl bg-red-50 p-4 text-sm text-red-700">

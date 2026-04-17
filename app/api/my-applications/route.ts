@@ -1,17 +1,45 @@
 import { NextRequest, NextResponse } from 'next/server';
+
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { getShiftMeta, isShiftFinished } from '@/lib/shift';
+import { getShiftMeta } from '@/lib/shift';
 
 type ApplicationRow = {
   id: number;
   slot_id: number;
-  status: string | null;
-  rejection_reason: string | null;
   created_at: string;
-  employee_role: string | null;
-  employee_email: string | null;
-  employee_user_id?: string | null;
+  status: 'pending' | 'approved' | 'rejected';
+  rejection_reason: string | null;
+  employee_user_id: string;
 };
+
+type SlotRow = {
+  id: number;
+  restaurant_id: number;
+  work_date: string;
+  time_from: string;
+  time_to: string;
+  position: string | null;
+  hourly_rate: number | null;
+  status: string;
+};
+
+type RestaurantRow = {
+  id: number;
+  name: string;
+  city: string | null;
+  address: string | null;
+};
+
+function parseShiftEnd(workDate: string, timeFrom: string, timeTo: string) {
+  const start = new Date(`${workDate}T${timeFrom}:00+03:00`);
+  const end = new Date(`${workDate}T${timeTo}:00+03:00`);
+
+  if (end.getTime() <= start.getTime()) {
+    end.setDate(end.getDate() + 1);
+  }
+
+  return end;
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -19,195 +47,106 @@ export async function GET(req: NextRequest) {
     const token = authHeader?.replace('Bearer ', '').trim();
 
     if (!token) {
-      return NextResponse.json(
-        {
-          applications: [],
-          stats: {
-            totalApproved: 0,
-            totalHours: '0.00',
-            uniqueRestaurants: 0,
-            totalFinished: 0,
-            totalPending: 0,
-            totalRejected: 0,
-            totalActive: 0,
-          },
-        },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: 'Нет авторизации' }, { status: 401 });
     }
 
     const { data: userData, error: userError } = await supabaseAdmin.auth.getUser(token);
 
     if (userError || !userData.user) {
-      return NextResponse.json(
-        {
-          applications: [],
-          stats: {
-            totalApproved: 0,
-            totalHours: '0.00',
-            uniqueRestaurants: 0,
-            totalFinished: 0,
-            totalPending: 0,
-            totalRejected: 0,
-            totalActive: 0,
-          },
-        },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: 'Сессия недействительна' }, { status: 401 });
     }
 
     const user = userData.user;
-    const userEmail = (user.email || '').trim().toLowerCase();
 
-    let applications: ApplicationRow[] = [];
-
-    const { data: byUserId, error: byUserIdError } = await supabaseAdmin
+    const { data: applicationsData, error: applicationsError } = await supabaseAdmin
       .from('applications')
-      .select(
-        'id, slot_id, status, rejection_reason, created_at, employee_role, employee_email, employee_user_id'
-      )
+      .select('id, slot_id, created_at, status, rejection_reason, employee_user_id')
       .eq('employee_user_id', user.id)
       .order('created_at', { ascending: false });
 
-    if (!byUserIdError && byUserId?.length) {
-      applications = byUserId as ApplicationRow[];
-    } else if (userEmail) {
-      const { data: byEmail, error: byEmailError } = await supabaseAdmin
-        .from('applications')
-        .select(
-          'id, slot_id, status, rejection_reason, created_at, employee_role, employee_email, employee_user_id'
-        )
-        .ilike('employee_email', userEmail)
-        .order('created_at', { ascending: false });
-
-      if (!byEmailError && byEmail?.length) {
-        applications = byEmail as ApplicationRow[];
-      }
+    if (applicationsError) {
+      return NextResponse.json({ error: applicationsError.message }, { status: 500 });
     }
+
+    const applications = (applicationsData || []) as ApplicationRow[];
 
     if (!applications.length) {
-      return NextResponse.json({
-        applications: [],
-        stats: {
-          totalApproved: 0,
-          totalHours: '0.00',
-          uniqueRestaurants: 0,
-          totalFinished: 0,
-          totalPending: 0,
-          totalRejected: 0,
-          totalActive: 0,
-        },
-      });
+      return NextResponse.json({ applications: [] });
     }
 
-    const uniqueApplications = Array.from(
-      new Map(applications.map((item) => [item.id, item])).values()
-    );
+    const slotIds = Array.from(new Set(applications.map((item) => item.slot_id)));
 
-    const slotIds = [...new Set(uniqueApplications.map((a) => a.slot_id))];
-
-    const { data: slots } = await supabaseAdmin
+    const { data: slotsData } = await supabaseAdmin
       .from('slots')
-      .select(
-        'id, restaurant_id, work_date, time_from, time_to, position, hourly_rate'
-      )
+      .select('id, restaurant_id, work_date, time_from, time_to, position, hourly_rate, status')
       .in('id', slotIds);
 
-    const restaurantIds = [...new Set((slots || []).map((s) => s.restaurant_id))];
+    const slots = (slotsData || []) as SlotRow[];
+    const slotMap = new Map<number, SlotRow>();
+    slots.forEach((item) => slotMap.set(item.id, item));
 
-    const { data: restaurants } = await supabaseAdmin
+    const restaurantIds = Array.from(new Set(slots.map((item) => item.restaurant_id)));
+
+    const { data: restaurantsData } = await supabaseAdmin
       .from('restaurants')
       .select('id, name, city, address')
       .in('id', restaurantIds);
 
-    const slotMap = new Map((slots || []).map((slot) => [slot.id, slot]));
-    const restaurantMap = new Map((restaurants || []).map((r) => [r.id, r]));
+    const restaurants = (restaurantsData || []) as RestaurantRow[];
+    const restaurantMap = new Map<number, RestaurantRow>();
+    restaurants.forEach((item) => restaurantMap.set(item.id, item));
 
-    const result = uniqueApplications.map((app) => {
-      const slot = slotMap.get(app.slot_id);
-      const restaurant = slot ? restaurantMap.get(slot.restaurant_id) : null;
+    const result = applications
+      .map((application) => {
+        const slot = slotMap.get(application.slot_id);
 
-      const shiftMeta =
-        slot?.time_from && slot?.time_to
-          ? getShiftMeta(slot.time_from, slot.time_to)
-          : { hours: '0.00', overnight: false };
+        if (!slot) {
+          return null;
+        }
 
-      const finished =
-        slot?.work_date && slot?.time_from && slot?.time_to
-          ? isShiftFinished(slot.work_date, slot.time_from, slot.time_to)
-          : false;
+        const restaurant = restaurantMap.get(slot.restaurant_id);
+        const shiftMeta = getShiftMeta(slot.time_from, slot.time_to);
+        const shiftEnd = parseShiftEnd(slot.work_date, slot.time_from, slot.time_to);
+        const isFinished = shiftEnd.getTime() < Date.now();
 
-      const derivedStatus =
-        app.status === 'approved'
-          ? finished
-            ? 'finished'
-            : 'active'
-          : app.status === 'rejected'
-          ? 'rejected'
-          : 'pending';
+        let derivedStatus: 'pending' | 'active' | 'finished' | 'rejected' = 'pending';
 
-      return {
-        id: app.id,
-        created_at: app.created_at,
-        status: app.status || 'pending',
-        derived_status: derivedStatus,
-        rejection_reason: app.rejection_reason,
-        restaurant_name: restaurant?.name || 'Ресторан не найден',
-        city: restaurant?.city || '',
-        address: restaurant?.address || '',
-        work_date: slot?.work_date || '',
-        time_from: slot?.time_from || '',
-        time_to: slot?.time_to || '',
-        position: slot?.position || '',
-        hourly_rate: slot?.hourly_rate ?? null,
-        hours: shiftMeta.hours,
-        overnight: shiftMeta.overnight,
-        is_finished: finished,
-      };
-    });
+        if (application.status === 'rejected') {
+          derivedStatus = 'rejected';
+        } else if (isFinished) {
+          derivedStatus = 'finished';
+        } else if (application.status === 'approved') {
+          derivedStatus = 'active';
+        }
 
-    const approved = result.filter((item) => item.status === 'approved');
-    const finishedApproved = result.filter((item) => item.derived_status === 'finished');
-    const pending = result.filter((item) => item.derived_status === 'pending');
-    const rejected = result.filter((item) => item.derived_status === 'rejected');
-    const active = result.filter((item) => item.derived_status === 'active');
-
-    const totalHours = finishedApproved.reduce((sum, item) => {
-      return sum + Number(item.hours || 0);
-    }, 0);
-
-    const uniqueRestaurants = new Set(
-      finishedApproved.map((item) => item.restaurant_name).filter(Boolean)
-    ).size;
+        return {
+          id: application.id,
+          created_at: application.created_at,
+          status: application.status,
+          derived_status: derivedStatus,
+          rejection_reason: application.rejection_reason,
+          restaurant_name: restaurant?.name || 'Ресторан',
+          city: restaurant?.city || '',
+          address: restaurant?.address || '',
+          work_date: slot.work_date,
+          time_from: slot.time_from,
+          time_to: slot.time_to,
+          position: slot.position || '',
+          hourly_rate: slot.hourly_rate ?? null,
+          hours: shiftMeta.hours,
+          overnight: shiftMeta.overnight,
+          is_finished: isFinished,
+          can_cancel: application.status === 'pending' && !isFinished,
+        };
+      })
+      .filter(Boolean);
 
     return NextResponse.json({
       applications: result,
-      stats: {
-        totalApproved: approved.length,
-        totalHours: totalHours.toFixed(2),
-        uniqueRestaurants,
-        totalFinished: finishedApproved.length,
-        totalPending: pending.length,
-        totalRejected: rejected.length,
-        totalActive: active.length,
-      },
     });
-  } catch (error) {
-    console.error('GET /api/my-applications error:', error);
-
+  } catch {
     return NextResponse.json(
-      {
-        applications: [],
-        stats: {
-          totalApproved: 0,
-          totalHours: '0.00',
-          uniqueRestaurants: 0,
-          totalFinished: 0,
-          totalPending: 0,
-          totalRejected: 0,
-          totalActive: 0,
-        },
-      },
+      { error: 'Ошибка загрузки моих откликов' },
       { status: 500 }
     );
   }

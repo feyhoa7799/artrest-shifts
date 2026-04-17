@@ -1,19 +1,20 @@
 import Link from 'next/link';
+
 import MyApplications from '@/app/components/MyApplications';
 
 export default function MyApplicationsPage() {
   return (
-    <main className="min-h-screen bg-[#fafafa] p-6">
-      <div className="mx-auto max-w-5xl">
+    <div className="mx-auto max-w-6xl p-6">
+      <div className="mb-6">
         <Link
           href="/"
-          className="mb-4 inline-flex items-center text-sm font-medium text-red-600 hover:underline"
+          className="inline-flex rounded-lg border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
         >
           ← На главную
         </Link>
-
-        <MyApplications />
       </div>
-    </main>
+
+      <MyApplications />
+    </div>
   );
 }
