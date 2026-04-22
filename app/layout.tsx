@@ -1,10 +1,18 @@
-import type { Metadata } from 'next';
-import ErrorReporter from '@/app/components/ErrorReporter';
+import type { Metadata, Viewport } from 'next';
+
+import ErrorReporter from './components/ErrorReporter';
+import MobileBottomNav from './components/MobileBottomNav';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Подработки в Rostic’s',
-  description: 'Сервис подработок для сотрудников',
+  title: 'Подработки в ROSTIC’S',
+  description: 'Удобный сервис подработок для сотрудников Арт Рест',
+};
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
 };
 
 export default function RootLayout({
@@ -14,9 +22,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ru">
-      <body>
+      <body className="bg-[#f6f7f8] text-gray-900 antialiased">
         <ErrorReporter />
-        {children}
+        <div className="min-h-screen pb-24 md:pb-0">{children}</div>
+        <MobileBottomNav />
       </body>
     </html>
   );

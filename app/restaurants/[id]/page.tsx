@@ -1,19 +1,12 @@
 import Link from 'next/link';
-import { supabase } from '@/lib/supabase';
+
 import ApplyButton from '@/app/components/ApplyButton';
 import ContactCard from '@/app/components/ContactCard';
-import {
-  formatDateRu,
-  formatHours,
-  formatShiftTimeRange,
-  getShiftMeta,
-  pluralRu,
-} from '@/lib/shift';
+import { getShiftMeta } from '@/lib/shift';
+import { supabase } from '@/lib/supabase';
 
 type PageProps = {
-  params: Promise<{
-    id: string;
-  }>;
+  params: Promise<{ id: string }>;
 };
 
 type Slot = {
@@ -23,12 +16,21 @@ type Slot = {
   time_from: string;
   time_to: string;
   position: string;
-  hourly_rate: number | null;
+  hourly_rate: number;
   comment: string | null;
   status: 'open' | 'pending' | 'closed' | 'assigned';
   is_hot: boolean | null;
   created_at: string;
 };
+
+function pluralRu(value: number, one: string, few: string, many: string) {
+  const mod10 = value % 10;
+  const mod100 = value % 100;
+
+  if (mod10 === 1 && mod100 !== 11) return one;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return few;
+  return many;
+}
 
 function formatRelative(value: string) {
   const date = new Date(value);
@@ -38,21 +40,29 @@ function formatRelative(value: string) {
   if (diffMs < 5 * 60 * 1000) return 'Недавно';
 
   const diffMinutes = Math.floor(diffMs / (60 * 1000));
+
   if (diffMinutes < 60) {
     return `${diffMinutes} ${pluralRu(diffMinutes, 'минуту', 'минуты', 'минут')} назад`;
   }
 
   const diffHours = Math.floor(diffMinutes / 60);
+
   if (diffHours < 24) {
     return `${diffHours} ${pluralRu(diffHours, 'час', 'часа', 'часов')} назад`;
   }
 
   const diffDays = Math.floor(diffHours / 24);
+
   if (diffDays < 7) {
     return `${diffDays} ${pluralRu(diffDays, 'день', 'дня', 'дней')} назад`;
   }
 
   return new Intl.DateTimeFormat('ru-RU', { dateStyle: 'medium' }).format(date);
+}
+
+function formatDateRu(value: string) {
+  const [year, month, day] = value.split('-');
+  return `${day}.${month}.${year}`;
 }
 
 export default async function RestaurantPage({ params }: PageProps) {
@@ -79,16 +89,20 @@ export default async function RestaurantPage({ params }: PageProps) {
   const slots = ((slotsData || []) as Slot[]).sort((a, b) => {
     const aHot = a.is_hot ? 1 : 0;
     const bHot = b.is_hot ? 1 : 0;
+
     return bHot - aHot || a.work_date.localeCompare(b.work_date);
   });
 
   if (restaurantError || !restaurant) {
     return (
-      <main className="min-h-screen bg-gray-50 p-6">
-        <div className="mx-auto max-w-3xl rounded-xl bg-white p-6 shadow-sm">
-          <h1 className="mb-4 text-2xl font-bold">Ресторан не найден</h1>
-          <Link href="/slots" className="text-red-600 hover:underline">
-            Вернуться назад
+      <main className="mx-auto max-w-5xl space-y-6 p-4 md:p-6">
+        <div className="rounded-2xl border bg-white p-6 shadow-sm">
+          <h1 className="mb-2 text-2xl font-semibold">Ресторан не найден</h1>
+          <Link
+            href="/slots"
+            className="inline-flex rounded-lg border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+          >
+            Вернуться к списку ресторанов
           </Link>
         </div>
       </main>
@@ -96,119 +110,122 @@ export default async function RestaurantPage({ params }: PageProps) {
   }
 
   return (
-    <main className="min-h-screen bg-gray-50 p-6">
-      <div className="mx-auto max-w-4xl">
+    <main className="mx-auto max-w-5xl space-y-6 p-4 md:p-6">
+      <div>
         <Link
           href="/slots"
-          className="mb-4 inline-block text-sm text-red-600 hover:underline"
+          className="inline-flex rounded-lg border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
         >
-          ← Назад к открытым сменам
+          ← Назад к списку ресторанов
         </Link>
+      </div>
 
-        <div className="mb-6 rounded-2xl border border-red-100 bg-white p-6 shadow-sm">
-          <div className="mb-2 inline-flex rounded-full bg-red-100 px-3 py-1 text-sm font-medium text-red-700">
-            Подработки в ROSTIC’S
-          </div>
+      <section className="rounded-2xl border bg-white p-6 shadow-sm">
+        <div className="mb-2 text-sm font-medium text-red-600">Подработки в ROSTIC’S</div>
+        <h1 className="mb-2 text-3xl font-bold tracking-tight text-gray-900">
+          {restaurant.name}
+        </h1>
+        <p className="text-sm text-gray-600">
+          {[restaurant.city, restaurant.address, restaurant.metro]
+            .filter(Boolean)
+            .join(' • ')}
+        </p>
 
-          <h1 className="text-2xl font-bold">{restaurant.name}</h1>
-          <p className="mt-2 text-gray-700">{restaurant.address}</p>
-
-          <div className="mt-3 flex flex-wrap gap-2 text-sm">
-            <span className="rounded-full bg-gray-100 px-3 py-1 text-gray-700">
-              {restaurant.city}
-            </span>
-
-            {restaurant.metro && (
-              <span className="rounded-full bg-gray-100 px-3 py-1 text-gray-700">
-                🚇 {restaurant.metro}
-              </span>
-            )}
-          </div>
-
-          <div className="mt-4">
-            <a
-              href={`/slots?focus=${restaurant.id}#map-section`}
-              className="inline-block rounded-lg border px-4 py-2 text-gray-700 hover:bg-gray-50"
-            >
-              На карте
-            </a>
-          </div>
+        <div className="mt-4">
+          <Link
+            href={`/slots?focus=${restaurant.id}`}
+            className="inline-flex rounded-lg border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+          >
+            Показать на карте
+          </Link>
         </div>
+      </section>
 
-        <div className="mb-6">
-          <ContactCard />
-        </div>
+      <section className="rounded-2xl border bg-white p-6 shadow-sm">
+        <h2 className="mb-2 text-xl font-semibold">Доступные смены</h2>
+        <p className="text-sm text-gray-600">
+          Ниже показаны только открытые смены этого ресторана.
+        </p>
 
-        <div className="rounded-2xl border bg-white p-6 shadow-sm">
-          <h2 className="mb-4 text-xl font-semibold">Доступные смены</h2>
+        {slotsError && (
+          <div className="mt-4 rounded-xl bg-red-50 p-4 text-sm text-red-700">
+            Ошибка загрузки смен
+          </div>
+        )}
 
-          {slotsError && (
-            <div className="rounded-lg bg-red-100 p-4 text-red-700">
-              Ошибка загрузки смен
-            </div>
-          )}
+        {!slots || slots.length === 0 ? (
+          <div className="mt-4 rounded-xl bg-gray-50 p-4 text-sm text-gray-700">
+            Сейчас открытых смен нет.
+          </div>
+        ) : (
+          <div className="mt-6 space-y-4">
+            {slots.map((slot) => {
+              const meta = getShiftMeta(slot.time_from, slot.time_to);
 
-          {!slots || slots.length === 0 ? (
-            <p className="text-gray-500">Сейчас открытых смен нет</p>
-          ) : (
-            <div className="space-y-4">
-              {slots.map((slot) => {
-                const meta = getShiftMeta(slot.time_from, slot.time_to);
-
-                return (
-                  <div
-                    key={slot.id}
-                    className={`rounded-2xl border p-5 ${
-                      slot.is_hot ? 'border-red-300 ring-1 ring-red-200 bg-red-50/40' : ''
-                    }`}
-                  >
-                    <div className="mb-2 flex items-start justify-between gap-3">
-                      <p className="font-semibold">{slot.position}</p>
-
-                      {slot.is_hot && (
-                        <span className="rounded-full bg-red-100 px-3 py-1 text-sm font-medium text-red-700">
-                          🔥 Горячая смена
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="grid gap-2 text-sm text-gray-700 md:grid-cols-2">
-                      <p>Дата: {formatDateRu(slot.work_date)}</p>
-                      <p>Время: {formatShiftTimeRange(slot.time_from, slot.time_to, meta.overnight)}</p>
-                      <p>Длительность: {formatHours(meta.hours)}</p>
-                    </div>
-
-                    {slot.hourly_rate ? (
-                      <div className="mt-3 rounded-xl bg-gray-50 p-4 text-sm text-gray-700">
-                        Оплата: {slot.hourly_rate} ₽/час
-                      </div>
-                    ) : null}
-
-                    {slot.comment && (
-                      <p className="mt-2 text-sm text-gray-500">{slot.comment}</p>
+              return (
+                <div
+                  key={slot.id}
+                  className="rounded-2xl border p-5"
+                >
+                  <div className="mb-3 flex flex-wrap items-center gap-2">
+                    {slot.is_hot && (
+                      <span className="rounded-full bg-red-100 px-2 py-1 text-xs text-red-700">
+                        Горячая смена
+                      </span>
                     )}
+                    <span className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-700">
+                      {formatDateRu(slot.work_date)}
+                    </span>
+                  </div>
 
-                    <p className="mt-2 text-xs text-gray-500">
-                      Слот открыт: {formatRelative(slot.created_at)}
-                    </p>
+                  <h3 className="text-lg font-semibold text-gray-900">{slot.position}</h3>
 
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <ApplyButton slotId={slot.id} />
+                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    <div className="text-sm text-gray-700">
+                      <span className="text-gray-500">Время:</span> {slot.time_from} –{' '}
+                      {slot.time_to}
+                      {meta.overnight ? ' (следующий день)' : ''}
+                    </div>
 
-                      <a
-                        href={`/slots?focus=${restaurant.id}#map-section`}
-                        className="inline-block rounded-lg border px-4 py-2 text-gray-700 hover:bg-gray-50"
-                      >
-                        На карте
-                      </a>
+                    <div className="text-sm text-gray-700">
+                      <span className="text-gray-500">Оплата:</span> {slot.hourly_rate} ₽/час
+                    </div>
+
+                    <div className="text-sm text-gray-700">
+                      <span className="text-gray-500">Длительность:</span>{' '}
+                      {meta.hours ? `${meta.hours} ч` : '—'}
+                    </div>
+
+                    <div className="text-sm text-gray-700">
+                      <span className="text-gray-500">Слот открыт:</span>{' '}
+                      {formatRelative(slot.created_at)}
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </div>
+
+                  {slot.comment && (
+                    <div className="mt-4 rounded-xl bg-gray-50 p-4 text-sm text-gray-700">
+                      {slot.comment}
+                    </div>
+                  )}
+
+                  <div className="mt-4 grid gap-2 md:grid-cols-2">
+                    <ApplyButton slotId={slot.id} />
+
+                    <Link
+                      href={`/slots?focus=${restaurant.id}`}
+                      className="inline-flex items-center justify-center rounded-lg border px-4 py-3 text-gray-700 hover:bg-gray-50"
+                    >
+                      Показать ресторан на карте
+                    </Link>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      <ContactCard />
     </main>
   );
 }

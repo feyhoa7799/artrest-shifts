@@ -348,7 +348,7 @@ export default function MyApplications({ embedded = false }: MyApplicationsProps
 
                 <div className="text-sm text-gray-700">
                   <span className="text-gray-500">Оплата:</span>{' '}
-                  {item.hourly_rate ? `${item.hourly_rate} ₽/час` : 'По договоренности'}
+                  {item.hourly_rate ? `${item.hourly_rate} ₽/час` : 'По договорённости'}
                 </div>
 
                 <div className="text-sm text-gray-700">

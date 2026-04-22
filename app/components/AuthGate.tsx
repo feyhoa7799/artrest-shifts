@@ -5,11 +5,12 @@ import type { User } from '@supabase/supabase-js';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Turnstile from 'react-turnstile';
-import { supabase } from '@/lib/supabase';
-import { validatePasswordStrength } from '@/lib/password';
+
+import ApprovedShiftsCard from '@/app/components/ApprovedShiftsCard';
 import ChangePasswordForm from '@/app/components/ChangePasswordForm';
 import TelegramLinkCard from '@/app/components/TelegramLinkCard';
-import ApprovedShiftsCard from '@/app/components/ApprovedShiftsCard';
+import { validatePasswordStrength } from '@/lib/password';
+import { supabase } from '@/lib/supabase';
 
 const ROLES = [
   'Член команды',
@@ -1106,7 +1107,8 @@ export default function AuthGate() {
               Куда нажать, чтобы выбрать смену?
             </div>
             <p className="mb-4 text-sm text-gray-700">
-              Нажмите кнопку ниже, чтобы перейти к выбору ресторана и открытых смен.
+              Нажмите кнопку ниже. Сначала откроется список ресторанов с доступными сменами,
+              а затем вы сможете перейти к конкретному ресторану и отправить отклик.
             </p>
 
             <div className="flex flex-wrap gap-2">

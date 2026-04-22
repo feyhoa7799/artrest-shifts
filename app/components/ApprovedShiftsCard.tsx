@@ -34,6 +34,10 @@ function parseShiftStart(workDate: string, timeFrom: string) {
   return new Date(`${workDate}T${timeFrom}:00+03:00`).getTime();
 }
 
+function formatTimeRange(from: string, to: string, overnight: boolean) {
+  return overnight ? `${from}–${to} (+1 день)` : `${from}–${to}`;
+}
+
 export default function ApprovedShiftsCard() {
   const [items, setItems] = useState<MyApplication[]>([]);
   const [loading, setLoading] = useState(true);
@@ -93,7 +97,7 @@ export default function ApprovedShiftsCard() {
       <div className="rounded-2xl border bg-white p-6 shadow-sm">
         <h3 className="mb-2 text-xl font-semibold">Тебя уже ждут</h3>
         <div className="rounded-xl bg-gray-50 p-4 text-sm text-gray-700">
-          Загружаю одобренные смены...
+          Загружаю подтверждённые смены...
         </div>
       </div>
     );
@@ -109,8 +113,8 @@ export default function ApprovedShiftsCard() {
         <div>
           <h3 className="mb-2 text-xl font-semibold">Тебя уже ждут</h3>
           <p className="text-sm text-gray-600">
-            Здесь показаны ближайшие одобренные смены. Прошедшие автоматически исчезают
-            из этого блока.
+            Здесь показаны ближайшие подтверждённые смены. Прошедшие автоматически
+            исчезают из этого блока.
           </p>
         </div>
 
@@ -136,7 +140,7 @@ export default function ApprovedShiftsCard() {
                 {formatDateRu(item.work_date)}
               </span>
               <span className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-700">
-                {item.time_from}–{item.time_to}
+                {formatTimeRange(item.time_from, item.time_to, item.overnight)}
               </span>
             </div>
 

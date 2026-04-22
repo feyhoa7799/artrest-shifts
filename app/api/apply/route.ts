@@ -21,11 +21,6 @@ type SlotRow = {
   status: string;
 };
 
-type RestaurantRow = {
-  id: number;
-  name: string;
-};
-
 type ApplicationRow = {
   id: number;
   slot_id: number;
@@ -72,12 +67,6 @@ export async function POST(req: NextRequest) {
 
     const employeeProfile = profile as EmployeeProfileRow;
 
-    const { data: homeRestaurant } = await supabaseAdmin
-      .from('restaurants')
-      .select('id, name')
-      .eq('id', employeeProfile.home_restaurant_id)
-      .single();
-
     const { data: slot, error: slotError } = await supabaseAdmin
       .from('slots')
       .select('id, restaurant_id, work_date, time_from, time_to, position, status')
@@ -85,14 +74,14 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (slotError || !slot) {
-      return NextResponse.json({ error: 'Слот не найден' }, { status: 404 });
+      return NextResponse.json({ error: 'Смена не найдена' }, { status: 404 });
     }
 
     const currentSlot = slot as SlotRow;
 
     if (currentSlot.status !== 'open') {
       return NextResponse.json(
-        { error: 'Этот слот уже недоступен' },
+        { error: 'Эта смена уже недоступна' },
         { status: 400 }
       );
     }
@@ -149,7 +138,7 @@ export async function POST(req: NextRequest) {
         {
           slot_id: slotId,
           full_name: employeeProfile.full_name,
-          home_restaurant: homeRestaurant?.name || 'Не указан',
+          home_restaurant: '',
           contact: employeeProfile.phone,
           comment: '',
           status: 'pending',

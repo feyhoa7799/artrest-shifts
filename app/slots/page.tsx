@@ -1,7 +1,8 @@
 import Link from 'next/link';
+
+import ContactCard from '@/app/components/ContactCard';
+import SlotsExplorer from '@/app/components/SlotsExplorer';
 import { supabase } from '@/lib/supabase';
-import ContactCard from '../components/ContactCard';
-import SlotsExplorer from '../components/SlotsExplorer';
 
 type SearchParams = Promise<{
   position?: string;
@@ -36,6 +37,11 @@ type Restaurant = {
   lng: number | null;
   isHot?: boolean;
 };
+
+function formatDateRu(value: string) {
+  const [year, month, day] = value.split('-');
+  return `${day}.${month}.${year}`;
+}
 
 export default async function SlotsPage(props: { searchParams: SearchParams }) {
   const searchParams = await props.searchParams;
@@ -95,6 +101,7 @@ export default async function SlotsPage(props: { searchParams: SearchParams }) {
   restaurants.sort((a, b) => {
     const aHot = a.isHot ? 1 : 0;
     const bHot = b.isHot ? 1 : 0;
+
     return bHot - aHot || a.name.localeCompare(b.name);
   });
 
@@ -137,133 +144,124 @@ export default async function SlotsPage(props: { searchParams: SearchParams }) {
   const hotCount = restaurants.filter((restaurant) => restaurant.isHot).length;
 
   return (
-    <main className="min-h-screen bg-[#fafafa]">
-      <div className="mx-auto max-w-6xl p-6">
-        <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <Link
-              href="/"
-              className="mb-2 inline-flex items-center text-sm font-medium text-red-600 hover:underline"
-            >
-              ← На главную
-            </Link>
-
-            <h1 className="text-3xl font-bold">Открытые смены</h1>
-            <p className="mt-2 max-w-2xl text-gray-600">
-              Выберите удобный ресторан и подходящую смену.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            <span className="rounded-full bg-white px-4 py-2 text-sm text-gray-700 shadow-sm">
-              Смен найдено: {typedOpenSlots.length}
-            </span>
-            <span className="rounded-full bg-white px-4 py-2 text-sm text-gray-700 shadow-sm">
-              Ресторанов: {restaurants.length}
-            </span>
-            {hotCount > 0 && (
-              <span className="rounded-full bg-red-100 px-4 py-2 text-sm font-medium text-red-700 shadow-sm">
-                🔥 Горячих ресторанов: {hotCount}
-              </span>
-            )}
-          </div>
-        </div>
-
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-          <div className="space-y-6 min-w-0">
-            <div className="rounded-2xl border bg-white p-5 shadow-sm">
-              <h2 className="mb-4 text-lg font-semibold">Фильтры</h2>
-
-              <form action="/slots" className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
-                <div className="min-w-0">
-                  <label className="mb-1 block text-sm font-medium text-gray-700">
-                    Должность
-                  </label>
-                  <select
-                    name="position"
-                    defaultValue={selectedPosition}
-                    className="w-full rounded-lg border p-3"
-                  >
-                    <option value="">Все должности</option>
-                    {positions.map((position) => (
-                      <option key={position} value={position}>
-                        {position}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="min-w-0">
-                  <label className="mb-1 block text-sm font-medium text-gray-700">
-                    Дата
-                  </label>
-                  <select
-                    name="date"
-                    defaultValue={selectedDate}
-                    className="w-full rounded-lg border p-3"
-                  >
-                    <option value="">Все даты</option>
-                    {dates.map((date) => (
-                      <option key={date} value={date}>
-                        {date}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="min-w-0">
-                  <label className="mb-1 block text-sm font-medium text-gray-700">
-                    Метро
-                  </label>
-                  <select
-                    name="metro"
-                    defaultValue={selectedMetro}
-                    className="w-full rounded-lg border p-3"
-                  >
-                    <option value="">Все станции</option>
-                    {metros.map((metro) => (
-                      <option key={metro} value={metro}>
-                        {metro}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="flex flex-wrap items-end gap-2 xl:justify-end">
-                  <button
-                    type="submit"
-                    className="rounded-lg bg-red-500 px-4 py-3 text-white hover:bg-red-600"
-                  >
-                    Применить
-                  </button>
-
-                  <Link
-                    href="/slots"
-                    className="rounded-lg border px-4 py-3 text-gray-700 hover:bg-gray-50"
-                  >
-                    Сбросить
-                  </Link>
-                </div>
-              </form>
-            </div>
-
-            {errorMessage ? (
-              <div className="rounded-lg bg-red-100 p-4 text-red-700">
-                Ошибка загрузки данных: {errorMessage}
-              </div>
-            ) : (
-              <SlotsExplorer
-                restaurants={restaurants}
-                initialFocusRestaurantId={focusRestaurantId}
-              />
-            )}
-          </div>
-
-          <div className="space-y-4">
-            <ContactCard />
-          </div>
-        </div>
+    <main className="mx-auto max-w-6xl space-y-6 p-4 md:p-6">
+      <div>
+        <Link
+          href="/"
+          className="inline-flex rounded-lg border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+        >
+          ← На главную
+        </Link>
       </div>
+
+      <section className="rounded-2xl border bg-white p-6 shadow-sm">
+        <h1 className="mb-2 text-3xl font-bold tracking-tight text-gray-900">
+          Доступные смены
+        </h1>
+        <p className="text-sm text-gray-600">
+          Сначала удобнее выбрать ресторан из списка ниже. Карта остаётся как дополнительный
+          режим, если хочется посмотреть расположение.
+        </p>
+
+        <div className="mt-5 flex flex-wrap gap-3 text-sm text-gray-700">
+          <span className="rounded-full bg-gray-100 px-3 py-1">
+            Смен найдено: {typedOpenSlots.length}
+          </span>
+          <span className="rounded-full bg-gray-100 px-3 py-1">
+            Ресторанов: {restaurants.length}
+          </span>
+          {hotCount > 0 && (
+            <span className="rounded-full bg-red-100 px-3 py-1 text-red-700">
+              Горячих ресторанов: {hotCount}
+            </span>
+          )}
+        </div>
+      </section>
+
+      <section className="rounded-2xl border bg-white p-6 shadow-sm">
+        <h2 className="mb-4 text-xl font-semibold">Фильтры</h2>
+
+        <form className="grid gap-4 md:grid-cols-3">
+          <div>
+            <label className="mb-2 block text-sm font-medium text-gray-700">
+              Должность
+            </label>
+            <select
+              name="position"
+              defaultValue={selectedPosition}
+              className="w-full rounded-lg border p-3"
+            >
+              <option value="">Все должности</option>
+              {positions.map((position) => (
+                <option key={position} value={position}>
+                  {position}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="mb-2 block text-sm font-medium text-gray-700">Дата</label>
+            <select
+              name="date"
+              defaultValue={selectedDate}
+              className="w-full rounded-lg border p-3"
+            >
+              <option value="">Все даты</option>
+              {dates.map((date) => (
+                <option key={date} value={date}>
+                  {formatDateRu(date)}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="mb-2 block text-sm font-medium text-gray-700">Метро</label>
+            <select
+              name="metro"
+              defaultValue={selectedMetro}
+              className="w-full rounded-lg border p-3"
+            >
+              <option value="">Все станции</option>
+              {metros.map((metro) => (
+                <option key={metro} value={metro}>
+                  {metro}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex flex-wrap gap-2 md:col-span-3">
+            <button
+              type="submit"
+              className="rounded-lg bg-red-500 px-4 py-3 text-white hover:bg-red-600"
+            >
+              Применить
+            </button>
+
+            <Link
+              href="/slots"
+              className="rounded-lg border px-4 py-3 text-gray-700 hover:bg-gray-50"
+            >
+              Сбросить
+            </Link>
+          </div>
+        </form>
+      </section>
+
+      {errorMessage ? (
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-sm text-red-700 shadow-sm">
+          Ошибка загрузки данных: {errorMessage}
+        </div>
+      ) : (
+        <SlotsExplorer
+          restaurants={restaurants}
+          initialFocusRestaurantId={focusRestaurantId}
+        />
+      )}
+
+      <ContactCard />
     </main>
   );
 }

@@ -1,15 +1,17 @@
 import Link from 'next/link';
 
 export default function ContactCard() {
-  const botUsername = (process.env.TELEGRAM_BOT_USERNAME || '').trim().replace(/^@/, '');
+  const botUsername = (process.env.TELEGRAM_BOT_USERNAME || '')
+    .trim()
+    .replace(/^@/, '');
   const botUrl = botUsername ? `https://t.me/${botUsername}` : null;
 
   return (
     <section className="rounded-2xl border bg-white p-6 shadow-sm">
       <h2 className="mb-2 text-2xl font-semibold text-gray-900">Обратная связь</h2>
       <p className="mb-5 text-sm text-gray-600">
-        Если у вас есть вопросы, предложения или замечания по работе сервиса подработок,
-        напишите нам.
+        Если есть вопросы по откликам, отменам, подтверждённым сменам или работе
+        платформы, напишите нам.
       </p>
 
       <div className="grid gap-4 md:grid-cols-2">
@@ -24,7 +26,7 @@ export default function ContactCard() {
         </div>
 
         <div className="rounded-xl bg-gray-50 p-4">
-          <div className="mb-1 text-sm text-gray-500">Бот-помощник</div>
+          <div className="mb-1 text-sm text-gray-500">Telegram-бот помощник</div>
           {botUrl ? (
             <Link
               href={botUrl}

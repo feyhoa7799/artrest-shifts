@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useEffect, useMemo, useState } from 'react';
+
 import YandexMap from '@/app/components/Map';
 
 type Restaurant = {
@@ -27,10 +28,11 @@ export default function SlotsExplorer({
   const [focusedRestaurantId, setFocusedRestaurantId] = useState<number | null>(
     initialFocusRestaurantId
   );
+  const [view, setView] = useState<'list' | 'map'>('list');
 
   useEffect(() => {
     setFocusedRestaurantId(initialFocusRestaurantId);
-  }, [initialFocusRestaurantId, restaurants]);
+  }, [initialFocusRestaurantId]);
 
   const hotCount = useMemo(
     () => restaurants.filter((restaurant) => restaurant.isHot).length,
@@ -39,105 +41,158 @@ export default function SlotsExplorer({
 
   function handleShowOnMap(restaurantId: number) {
     setFocusedRestaurantId(restaurantId);
-    document.getElementById('map-section')?.scrollIntoView({
-      behavior: 'smooth',
-      block: 'start',
-    });
+    setView('map');
+
+    setTimeout(() => {
+      document.getElementById('map-section')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    }, 50);
   }
 
   return (
-    <>
-      {restaurants.length > 0 && (
-        <section id="map-section" className="mb-6 scroll-mt-6">
-          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h2 className="text-xl font-semibold">Карта открытых смен</h2>
-            </div>
+    <div className="space-y-6">
+      <section className="rounded-2xl border bg-white p-6 shadow-sm">
+        <div className="mb-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setView('list')}
+            className={`rounded-full px-4 py-2 text-sm ${
+              view === 'list'
+                ? 'bg-red-500 text-white'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            Список ресторанов
+          </button>
 
-            <div className="flex flex-wrap gap-2">
-              <span className="rounded-full bg-white px-3 py-1 text-sm text-gray-700 shadow-sm">
-                {restaurants.length} ресторанов
+          <button
+            type="button"
+            onClick={() => setView('map')}
+            className={`rounded-full px-4 py-2 text-sm ${
+              view === 'map'
+                ? 'bg-red-500 text-white'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            Карта
+          </button>
+        </div>
+
+        <div className="text-sm text-gray-600">
+          Сначала удобнее посмотреть список. Потом при желании можно открыть карту и
+          увидеть расположение ресторана.
+        </div>
+
+        {restaurants.length > 0 && (
+          <div className="mt-4 flex flex-wrap gap-3 text-sm text-gray-700">
+            <span className="rounded-full bg-gray-100 px-3 py-1">
+              Ресторанов: {restaurants.length}
+            </span>
+            {hotCount > 0 && (
+              <span className="rounded-full bg-red-100 px-3 py-1 text-red-700">
+                Горячих: {hotCount}
               </span>
+            )}
+          </div>
+        )}
+      </section>
 
-              {hotCount > 0 && (
-                <span className="rounded-full bg-red-100 px-3 py-1 text-sm font-medium text-red-700 shadow-sm">
-                  🔥 Горячих: {hotCount}
-                </span>
-              )}
-            </div>
+      {view === 'list' && (
+        <section className="space-y-4">
+          <div className="rounded-2xl border bg-white p-6 shadow-sm">
+            <h2 className="mb-2 text-xl font-semibold">Выберите ресторан</h2>
+            <p className="text-sm text-gray-600">
+              Нажмите на ресторан, чтобы увидеть доступные смены именно в нём.
+            </p>
           </div>
 
-          <YandexMap
-            restaurants={restaurants}
-            focusRestaurantId={focusedRestaurantId}
-          />
+          {restaurants.length === 0 ? (
+            <div className="rounded-2xl border bg-white p-6 text-sm text-gray-700 shadow-sm">
+              По выбранным фильтрам открытых смен нет.
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {restaurants.map((restaurant) => (
+                <div
+                  key={restaurant.id}
+                  className="rounded-2xl border bg-white p-5 shadow-sm"
+                >
+                  <div className="mb-3 flex flex-wrap items-center gap-2">
+                    {restaurant.isHot && (
+                      <span className="rounded-full bg-red-100 px-2 py-1 text-xs text-red-700">
+                        Горячая смена
+                      </span>
+                    )}
+                    {restaurant.metro && (
+                      <span className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-700">
+                        {restaurant.metro}
+                      </span>
+                    )}
+                  </div>
+
+                  <h3 className="text-lg font-semibold text-gray-900">{restaurant.name}</h3>
+
+                  <div className="mt-1 text-sm text-gray-600">
+                    {[restaurant.city, restaurant.address].filter(Boolean).join(' • ')}
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <Link
+                      href={`/restaurants/${restaurant.id}`}
+                      className="rounded-lg bg-red-500 px-4 py-3 text-white hover:bg-red-600"
+                    >
+                      Выбрать этот ресторан
+                    </Link>
+
+                    <button
+                      type="button"
+                      onClick={() => handleShowOnMap(restaurant.id)}
+                      className="rounded-lg border px-4 py-3 text-gray-700 hover:bg-gray-50"
+                    >
+                      Показать на карте
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </section>
       )}
 
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-xl font-semibold">Рестораны с открытыми сменами</h2>
-        <span className="rounded-full bg-white px-3 py-1 text-sm text-gray-600 shadow-sm">
-          {restaurants.length} шт.
-        </span>
-      </div>
+      {view === 'map' && (
+        <section
+          id="map-section"
+          className="space-y-4"
+        >
+          <div className="rounded-2xl border bg-white p-6 shadow-sm">
+            <h2 className="mb-2 text-xl font-semibold">Карта ресторанов</h2>
+            <p className="text-sm text-gray-600">
+              Можно приблизить карту и затем вернуться к списку. Для выбора смен чаще
+              удобнее использовать список ресторанов.
+            </p>
+          </div>
 
-      {restaurants.length === 0 ? (
-        <div className="rounded-2xl border bg-white p-6 text-gray-500 shadow-sm">
-          По выбранным фильтрам открытых смен нет.
-        </div>
-      ) : (
-        <div className="grid gap-4 md:grid-cols-2">
-          {restaurants.map((restaurant) => (
-            <div
-              key={restaurant.id}
-              className={`rounded-2xl border bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${
-                restaurant.isHot ? 'border-red-300 ring-1 ring-red-200 bg-red-50/30' : ''
-              }`}
-            >
-              <div className="mb-2 flex items-start justify-between gap-3">
-                <h3 className="text-lg font-semibold">{restaurant.name}</h3>
+          <div className="overflow-hidden rounded-2xl border bg-white shadow-sm">
+            <YandexMap
+              restaurants={restaurants}
+              focusRestaurantId={focusedRestaurantId}
+            />
+          </div>
 
-                {restaurant.isHot && (
-                  <span className="rounded-full bg-red-100 px-3 py-1 text-sm font-medium text-red-700">
-                    🔥 Горячая смена
-                  </span>
-                )}
-              </div>
-
-              <p className="text-sm text-gray-700">{restaurant.address}</p>
-
-              <div className="mt-3 flex flex-wrap gap-2 text-sm">
-                <span className="rounded-full bg-gray-100 px-3 py-1 text-gray-700">
-                  {restaurant.city}
-                </span>
-
-                {restaurant.metro && (
-                  <span className="rounded-full bg-gray-100 px-3 py-1 text-gray-700">
-                    🚇 {restaurant.metro}
-                  </span>
-                )}
-              </div>
-
-              <div className="mt-4 flex flex-wrap gap-2">
-                <Link
-                  href={`/restaurants/${restaurant.id}`}
-                  className="inline-flex items-center rounded-lg bg-red-500 px-4 py-2 text-white hover:bg-red-600"
-                >
-                  Посмотреть смены
-                </Link>
-
-                <button
-                  type="button"
-                  onClick={() => handleShowOnMap(restaurant.id)}
-                  className="inline-flex items-center rounded-lg border px-4 py-2 text-gray-700 hover:bg-gray-50"
-                >
-                  Показать на карте
-                </button>
-              </div>
+          {focusedRestaurantId && (
+            <div className="rounded-2xl border bg-white p-4 shadow-sm">
+              <Link
+                href={`/restaurants/${focusedRestaurantId}`}
+                className="inline-flex rounded-lg bg-red-500 px-4 py-3 text-white hover:bg-red-600"
+              >
+                Перейти к сменам выбранного ресторана
+              </Link>
             </div>
-          ))}
-        </div>
+          )}
+        </section>
       )}
-    </>
+    </div>
   );
 }

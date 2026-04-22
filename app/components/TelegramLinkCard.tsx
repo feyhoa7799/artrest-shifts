@@ -121,7 +121,7 @@ export default function TelegramLinkCard() {
       }
 
       setNotice(
-        'Открыли бота в новой вкладке. Нажми Start в Telegram, затем вернись и нажми «Проверить статус».'
+        'Открыли бота в новой вкладке. Нажмите Start в Telegram, затем вернитесь и нажмите «Проверить статус».'
       );
     } catch {
       setError('Ошибка создания ссылки Telegram');
@@ -187,7 +187,7 @@ export default function TelegramLinkCard() {
       <p className="mb-5 text-sm text-gray-600">
         {isLinked
           ? 'Аккаунт привязан'
-          : 'Здесь можно привязать Telegram и получать короткие напоминания по одобренным сменам за 2 дня, 24 часа, 12 часов, 8 часов и 4 часа.'}
+          : 'Здесь можно привязать Telegram и получать уведомления по подтверждённым сменам и их изменениям.'}
       </p>
 
       {notice && (
@@ -210,7 +210,7 @@ export default function TelegramLinkCard() {
         <>
           {!isLinked ? (
             <div className="mb-4 rounded-xl bg-yellow-50 p-4 text-sm text-yellow-800">
-              Telegram пока не привязан. Нажми кнопку ниже, перейди в бота и нажми
+              Telegram пока не привязан. Нажмите кнопку ниже, перейдите в бота и нажмите
               Start.
             </div>
           ) : (
