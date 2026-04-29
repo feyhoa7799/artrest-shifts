@@ -167,7 +167,7 @@ function getSmtpConfig(): SmtpConfig | null {
   const from =
     process.env.SMTP_FROM?.trim() ||
     process.env.MAIL_FROM?.trim() ||
-    'Арт Рест Подработки <noreply@podrapotka.art-rest.com>';
+    'Арт Рест Подработки <noreply@podrabotka.art-rest.com>';
 
   return {
     host,
