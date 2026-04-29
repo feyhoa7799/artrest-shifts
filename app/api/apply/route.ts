@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { notifyAboutNewApplication } from '@/lib/application-notifications';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 
 type EmployeeProfileRow = {
@@ -18,6 +19,8 @@ type SlotRow = {
   time_from: string;
   time_to: string;
   position: string | null;
+  hourly_rate: number | null;
+  comment: string | null;
   status: string;
 };
 
@@ -69,7 +72,9 @@ export async function POST(req: NextRequest) {
 
     const { data: slot, error: slotError } = await supabaseAdmin
       .from('slots')
-      .select('id, restaurant_id, work_date, time_from, time_to, position, status')
+      .select(
+        'id, restaurant_id, work_date, time_from, time_to, position, hourly_rate, comment, status'
+      )
       .eq('id', slotId)
       .single();
 
@@ -132,7 +137,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const { error: applicationError } = await supabaseAdmin
+    const { data: createdApplication, error: applicationError } = await supabaseAdmin
       .from('applications')
       .insert([
         {
@@ -148,10 +153,15 @@ export async function POST(req: NextRequest) {
           employee_role: employeeProfile.role,
           employee_home_restaurant_id: employeeProfile.home_restaurant_id,
         },
-      ]);
+      ])
+      .select('id')
+      .single();
 
-    if (applicationError) {
-      return NextResponse.json({ error: applicationError.message }, { status: 500 });
+    if (applicationError || !createdApplication) {
+      return NextResponse.json(
+        { error: applicationError?.message || 'Не удалось создать отклик' },
+        { status: 500 }
+      );
     }
 
     const { error: slotUpdateError } = await supabaseAdmin
@@ -163,7 +173,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: slotUpdateError.message }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true });
+    const notification = await notifyAboutNewApplication({
+      applicationId: Number(createdApplication.id),
+      slot: currentSlot,
+      employeeProfile,
+    });
+
+    if (!notification.sent && notification.reason) {
+      console.error('New application email notification failed:', notification.reason);
+    }
+
+    return NextResponse.json({
+      success: true,
+      applicationId: Number(createdApplication.id),
+      notificationSent: notification.sent,
+    });
   } catch {
     return NextResponse.json(
       { error: 'Ошибка сервера при отклике' },
