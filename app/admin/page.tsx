@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import AdminDashboard from './AdminDashboard';
 import AdminAccessManager from './AdminAccessManager';
+import NotificationSettingsManager from './NotificationSettingsManager';
 import { getShiftEndDate } from '@/lib/shift';
 
 type SearchParams = Promise<{
@@ -262,7 +263,8 @@ export default async function AdminPage(props: { searchParams: SearchParams }) {
       </div>
 
       <div className="bg-[#fafafa] px-6 pt-6">
-        <div className="mx-auto max-w-7xl">
+        <div className="mx-auto max-w-7xl space-y-6">
+          <NotificationSettingsManager />
           <AdminAccessManager />
         </div>
       </div>
