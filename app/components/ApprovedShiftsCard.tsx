@@ -105,7 +105,7 @@ export default function ApprovedShiftsCard({
       <div className="rounded-2xl border bg-white p-6 shadow-sm">
         <h3 className="mb-2 text-xl font-semibold">Тебя уже ждут</h3>
         <div className="rounded-xl bg-gray-50 p-4 text-sm text-gray-700">
-          агружаю подтверждённые смены...
+          Загружаю подтверждённые смены...
         </div>
       </div>
     );
@@ -121,7 +121,7 @@ export default function ApprovedShiftsCard({
         <div>
           <h3 className="mb-2 text-xl font-semibold">Тебя уже ждут</h3>
           <p className="text-sm text-gray-600">
-            десь показаны ближайшие подтверждённые смены. рошедшие автоматически
+            Здесь показаны ближайшие подтверждённые смены. Прошедшие автоматически
             исчезают из этого блока.
           </p>
         </div>
@@ -130,7 +130,7 @@ export default function ApprovedShiftsCard({
           href="/my-applications"
           className="rounded-lg border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
         >
-          се мои отклики
+          Все мои отклики
         </Link>
       </div>
 
@@ -139,7 +139,7 @@ export default function ApprovedShiftsCard({
           <div key={item.id} className="rounded-xl border p-4">
             <div className="mb-2 flex flex-wrap items-center gap-2">
               <span className="rounded-full bg-green-100 px-2 py-1 text-xs text-green-700">
-                одтверждена
+                Подтверждена
               </span>
               <span className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-700">
                 {formatDateRu(item.work_date)}
@@ -155,7 +155,7 @@ export default function ApprovedShiftsCard({
             </div>
 
             <div className="mt-2 text-sm text-gray-700">
-              <span className="text-gray-500">олжность:</span>{' '}
+              <span className="text-gray-500">Должность:</span>{' '}
               {item.position || '—'}
             </div>
           </div>

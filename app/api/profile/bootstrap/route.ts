@@ -58,7 +58,7 @@ function clearSessionCookies(res: NextResponse) {
 
 function normalizeFullName(value: string | null | undefined) {
   return String(value || '')
-    .replace(/[^-Яа-яё\s-]/g, '')
+    .replace(/[^А-Яа-яЁё\s-]/g, '')
     .replace(/\s+/g, ' ')
     .replace(/-+/g, '-')
     .trim();
@@ -70,7 +70,7 @@ function isValidCyrillicFullName(value: string | null | undefined) {
   if (!normalized) return false;
   if (normalized.length < 5) return false;
 
-  if (!/^[-Яа-яё]+(?:[\s-][-Яа-яё]+)*$/.test(normalized)) {
+  if (!/^[А-Яа-яЁё]+(?:[\s-][А-Яа-яЁё]+)*$/.test(normalized)) {
     return false;
   }
 
@@ -128,7 +128,7 @@ export async function GET(req: NextRequest) {
 
     if (!token) {
       return clearSessionCookies(
-        NextResponse.json({ error: 'ет авторизации' }, { status: 401 })
+        NextResponse.json({ error: 'Нет авторизации' }, { status: 401 })
       );
     }
 
@@ -202,7 +202,7 @@ export async function GET(req: NextRequest) {
     console.error('[profile/bootstrap] error:', error);
 
     return NextResponse.json(
-      { error: 'шибка загрузки профиля' },
+      { error: 'Ошибка загрузки профиля' },
       { status: 500 }
     );
   }

@@ -15,7 +15,7 @@ export async function GET() {
     console.error('[api/restaurants] Unexpected error:', error);
 
     return NextResponse.json(
-      { error: 'е удалось загрузить список ресторанов' },
+      { error: 'Не удалось загрузить список ресторанов' },
       { status: 500 }
     );
   }

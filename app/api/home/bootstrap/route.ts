@@ -61,7 +61,7 @@ function clearSessionCookies(res: NextResponse) {
 
 function normalizeFullName(value: string | null | undefined) {
   return String(value || '')
-    .replace(/[^-Яа-яё\s-]/g, '')
+    .replace(/[^А-Яа-яЁё\s-]/g, '')
     .replace(/\s+/g, ' ')
     .replace(/-+/g, '-')
     .trim();
@@ -73,7 +73,7 @@ function isValidCyrillicFullName(value: string | null | undefined) {
   if (!normalized) return false;
   if (normalized.length < 5) return false;
 
-  if (!/^[-Яа-яё]+(?:[\s-][-Яа-яё]+)*$/.test(normalized)) {
+  if (!/^[А-Яа-яЁё]+(?:[\s-][А-Яа-яЁё]+)*$/.test(normalized)) {
     return false;
   }
 
@@ -183,7 +183,7 @@ async function loadUpcomingApprovedApplications(userId: string) {
         status: application.status,
         derived_status: 'active' as const,
         rejection_reason: application.rejection_reason,
-        restaurant_name: restaurant?.name || 'есторан',
+        restaurant_name: restaurant?.name || 'Ресторан',
         city: restaurant?.city || '',
         address: restaurant?.address || '',
         work_date: slot.work_date,
@@ -221,7 +221,7 @@ export async function GET(req: NextRequest) {
 
     if (!token) {
       return clearSessionCookies(
-        NextResponse.json({ error: 'ет авторизации' }, { status: 401 })
+        NextResponse.json({ error: 'Нет авторизации' }, { status: 401 })
       );
     }
 
@@ -289,7 +289,7 @@ export async function GET(req: NextRequest) {
     console.error('[home/bootstrap] error:', error);
 
     return NextResponse.json(
-      { error: 'шибка загрузки главной страницы' },
+      { error: 'Ошибка загрузки главной страницы' },
       { status: 500 }
     );
   }
