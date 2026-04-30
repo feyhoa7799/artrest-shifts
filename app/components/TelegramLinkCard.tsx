@@ -280,6 +280,7 @@ export default function TelegramLinkCard({ accessToken }: TelegramLinkCardProps)
 
             <Link
               href="/my-applications"
+              prefetch={false}
               className="rounded-lg border px-4 py-3 text-gray-700 hover:bg-gray-50"
             >
               Мои отклики

@@ -649,7 +649,8 @@ export default function AuthGate() {
 
       showNotice('Вход выполнен.');
       resetCaptcha();
-      await hydrate();
+      await hydrate({ force: true });
+      router.refresh();
     } finally {
       setLoggingIn(false);
     }
@@ -1123,6 +1124,7 @@ export default function AuthGate() {
             {adminState.isAdmin && (
               <Link
                 href="/admin"
+                prefetch={false}
                 className="rounded-lg border px-4 py-3 text-gray-700 hover:bg-gray-50"
               >
                 Админ-панель
@@ -1131,6 +1133,7 @@ export default function AuthGate() {
 
             <Link
               href="/my-applications"
+              prefetch={false}
               className="rounded-lg border px-4 py-3 text-gray-700 hover:bg-gray-50"
             >
               Мои отклики
@@ -1139,6 +1142,7 @@ export default function AuthGate() {
             {profileReady && !profile.is_blocked && (
               <Link
                 href="/slots"
+                prefetch={false}
                 className="rounded-lg bg-red-500 px-4 py-3 text-white hover:bg-red-600"
               >
                 Смотреть смены
@@ -1211,6 +1215,7 @@ export default function AuthGate() {
               {!profile.is_blocked && (
                 <Link
                   href="/slots"
+                  prefetch={false}
                   className="rounded-lg bg-red-500 px-4 py-3 text-white hover:bg-red-600"
                 >
                   Перейти к сменам
