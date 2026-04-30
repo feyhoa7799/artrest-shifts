@@ -1,238 +1,209 @@
-import ApplyButton from '@/app/components/ApplyButton';
-import ContactCard from '@/app/components/ContactCard';
-import { getShiftMeta } from '@/lib/shift';
-import { supabase } from '@/lib/supabase';
+'use client';
 
-export const dynamic = 'force-dynamic';
-export const revalidate = 0;
+import { useEffect, useMemo, useState } from 'react';
 
-type PageProps = {
-  params: Promise<{ id: string }>;
-};
+import YandexMap from '@/app/components/Map';
 
-type Slot = {
+type Restaurant = {
   id: number;
-  restaurant_id: number;
-  work_date: string;
-  time_from: string;
-  time_to: string;
-  position: string;
-  hourly_rate: number;
-  comment: string | null;
-  status: 'open' | 'pending' | 'closed' | 'assigned';
-  is_hot: boolean | null;
-  created_at: string;
+  name: string;
+  address: string;
+  city: string;
+  metro: string | null;
+  lat: number | null;
+  lng: number | null;
+  isHot?: boolean;
 };
 
-function pluralRu(value: number, one: string, few: string, many: string) {
-  const mod10 = value % 10;
-  const mod100 = value % 100;
+type SlotsExplorerProps = {
+  restaurants: Restaurant[];
+  initialFocusRestaurantId?: number | null;
+};
 
-  if (mod10 === 1 && mod100 !== 11) return one;
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return few;
-  return many;
-}
+export default function SlotsExplorer({
+  restaurants,
+  initialFocusRestaurantId = null,
+}: SlotsExplorerProps) {
+  const [focusedRestaurantId, setFocusedRestaurantId] = useState<number | null>(
+    initialFocusRestaurantId
+  );
+  const [view, setView] = useState<'list' | 'map'>('list');
 
-function formatRelative(value: string) {
-  const date = new Date(value);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
+  useEffect(() => {
+    setFocusedRestaurantId(initialFocusRestaurantId);
 
-  if (diffMs < 5 * 60 * 1000) return 'Недавно';
+    if (initialFocusRestaurantId) {
+      setView('map');
 
-  const diffMinutes = Math.floor(diffMs / (60 * 1000));
+      window.setTimeout(() => {
+        document.getElementById('map-section')?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start',
+        });
+      }, 100);
+    }
+  }, [initialFocusRestaurantId]);
 
-  if (diffMinutes < 60) {
-    return `${diffMinutes} ${pluralRu(diffMinutes, 'минуту', 'минуты', 'минут')} назад`;
-  }
+  const hotCount = useMemo(
+    () => restaurants.filter((restaurant) => restaurant.isHot).length,
+    [restaurants]
+  );
 
-  const diffHours = Math.floor(diffMinutes / 60);
+  function handleShowOnMap(restaurantId: number) {
+    setFocusedRestaurantId(restaurantId);
+    setView('map');
 
-  if (diffHours < 24) {
-    return `${diffHours} ${pluralRu(diffHours, 'час', 'часа', 'часов')} назад`;
-  }
-
-  const diffDays = Math.floor(diffHours / 24);
-
-  if (diffDays < 7) {
-    return `${diffDays} ${pluralRu(diffDays, 'день', 'дня', 'дней')} назад`;
-  }
-
-  return new Intl.DateTimeFormat('ru-RU', { dateStyle: 'medium' }).format(date);
-}
-
-function formatDateRu(value: string) {
-  const [year, month, day] = value.split('-');
-  return `${day}.${month}.${year}`;
-}
-
-export default async function RestaurantPage({ params }: PageProps) {
-  const { id } = await params;
-  const restaurantId = Number(id);
-  const todayStr = new Date().toISOString().slice(0, 10);
-
-  const { data: restaurant, error: restaurantError } = await supabase
-    .from('restaurants')
-    .select('id, name, address, city, metro')
-    .eq('id', restaurantId)
-    .single();
-
-  const { data: slotsData, error: slotsError } = await supabase
-    .from('slots')
-    .select(
-      'id, restaurant_id, work_date, time_from, time_to, position, hourly_rate, comment, status, is_hot, created_at'
-    )
-    .eq('restaurant_id', restaurantId)
-    .eq('status', 'open')
-    .gte('work_date', todayStr)
-    .order('work_date', { ascending: true });
-
-  const slots = ((slotsData || []) as Slot[]).sort((a, b) => {
-    const aHot = a.is_hot ? 1 : 0;
-    const bHot = b.is_hot ? 1 : 0;
-
-    return bHot - aHot || a.work_date.localeCompare(b.work_date);
-  });
-
-  if (restaurantError || !restaurant) {
-    return (
-      <main className="mx-auto max-w-5xl space-y-6 p-4 md:p-6">
-        <div className="rounded-2xl border bg-white p-6 shadow-sm">
-          <h1 className="mb-2 text-2xl font-semibold">Ресторан не найден</h1>
-
-          <a
-            href="/slots"
-            className="inline-flex rounded-lg border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-          >
-            Вернуться к списку ресторанов
-          </a>
-        </div>
-      </main>
-    );
+    window.setTimeout(() => {
+      document.getElementById('map-section')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    }, 50);
   }
 
   return (
-    <main className="mx-auto max-w-5xl space-y-6 p-4 md:p-6">
-      <div>
-        <a
-          href="/slots"
-          className="inline-flex rounded-lg border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-        >
-          ← Назад к списку ресторанов
-        </a>
-      </div>
-
+    <div className="space-y-6">
       <section className="rounded-2xl border bg-white p-6 shadow-sm">
-        <div className="mb-2 text-sm font-medium text-red-600">
-          Подработки в ROSTIC’S
-        </div>
-
-        <h1 className="mb-2 text-3xl font-bold tracking-tight text-gray-900">
-          {restaurant.name}
-        </h1>
-
-        <p className="text-sm text-gray-600">
-          {[restaurant.city, restaurant.address, restaurant.metro]
-            .filter(Boolean)
-            .join(' • ')}
-        </p>
-
-        <div className="mt-4">
-          <a
-            href={`/slots?focus=${restaurant.id}`}
-            className="inline-flex rounded-lg border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+        <div className="mb-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setView('list')}
+            className={`rounded-full px-4 py-2 text-sm ${
+              view === 'list'
+                ? 'bg-red-500 text-white'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
           >
-            Показать на карте
-          </a>
+            Список ресторанов
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setView('map')}
+            className={`rounded-full px-4 py-2 text-sm ${
+              view === 'map'
+                ? 'bg-red-500 text-white'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            Карта
+          </button>
         </div>
-      </section>
 
-      <section className="rounded-2xl border bg-white p-6 shadow-sm">
-        <h2 className="mb-2 text-xl font-semibold">Доступные смены</h2>
-        <p className="text-sm text-gray-600">
-          Ниже показаны только открытые смены этого ресторана.
-        </p>
+        <div className="text-sm text-gray-600">
+          Сначала удобнее посмотреть список. Потом при желании можно открыть карту и
+          увидеть расположение ресторана.
+        </div>
 
-        {slotsError && (
-          <div className="mt-4 rounded-xl bg-red-50 p-4 text-sm text-red-700">
-            Ошибка загрузки смен
+        {restaurants.length > 0 && (
+          <div className="mt-4 flex flex-wrap gap-3 text-sm text-gray-700">
+            <span className="rounded-full bg-gray-100 px-3 py-1">
+              Ресторанов: {restaurants.length}
+            </span>
+
+            {hotCount > 0 && (
+              <span className="rounded-full bg-red-100 px-3 py-1 text-red-700">
+                Горячих: {hotCount}
+              </span>
+            )}
           </div>
         )}
+      </section>
 
-        {!slots || slots.length === 0 ? (
-          <div className="mt-4 rounded-xl bg-gray-50 p-4 text-sm text-gray-700">
-            Сейчас открытых смен нет.
+      {view === 'list' && (
+        <section className="space-y-4">
+          <div className="rounded-2xl border bg-white p-6 shadow-sm">
+            <h2 className="mb-2 text-xl font-semibold">Выберите ресторан</h2>
+            <p className="text-sm text-gray-600">
+              Нажмите на ресторан, чтобы увидеть доступные смены именно в нём.
+            </p>
           </div>
-        ) : (
-          <div className="mt-6 space-y-4">
-            {slots.map((slot) => {
-              const meta = getShiftMeta(slot.time_from, slot.time_to);
 
-              return (
-                <div key={slot.id} className="rounded-2xl border p-5">
+          {restaurants.length === 0 ? (
+            <div className="rounded-2xl border bg-white p-6 text-sm text-gray-700 shadow-sm">
+              По выбранным фильтрам открытых смен нет.
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {restaurants.map((restaurant) => (
+                <div
+                  key={restaurant.id}
+                  className="rounded-2xl border bg-white p-5 shadow-sm"
+                >
                   <div className="mb-3 flex flex-wrap items-center gap-2">
-                    {slot.is_hot && (
+                    {restaurant.isHot && (
                       <span className="rounded-full bg-red-100 px-2 py-1 text-xs text-red-700">
                         Горячая смена
                       </span>
                     )}
 
-                    <span className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-700">
-                      {formatDateRu(slot.work_date)}
-                    </span>
+                    {restaurant.metro && (
+                      <span className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-700">
+                        {restaurant.metro}
+                      </span>
+                    )}
                   </div>
 
                   <h3 className="text-lg font-semibold text-gray-900">
-                    {slot.position}
+                    {restaurant.name}
                   </h3>
 
-                  <div className="mt-4 grid gap-3 md:grid-cols-2">
-                    <div className="text-sm text-gray-700">
-                      <span className="text-gray-500">Время:</span>{' '}
-                      {slot.time_from} – {slot.time_to}
-                      {meta.overnight ? ' (следующий день)' : ''}
-                    </div>
-
-                    <div className="text-sm text-gray-700">
-                      <span className="text-gray-500">Оплата:</span>{' '}
-                      {slot.hourly_rate} ₽/час
-                    </div>
-
-                    <div className="text-sm text-gray-700">
-                      <span className="text-gray-500">Длительность:</span>{' '}
-                      {meta.hours ? `${meta.hours} ч` : '—'}
-                    </div>
-
-                    <div className="text-sm text-gray-700">
-                      <span className="text-gray-500">Слот открыт:</span>{' '}
-                      {formatRelative(slot.created_at)}
-                    </div>
+                  <div className="mt-1 text-sm text-gray-600">
+                    {[restaurant.city, restaurant.address].filter(Boolean).join(' • ')}
                   </div>
 
-                  {slot.comment && (
-                    <div className="mt-4 rounded-xl bg-gray-50 p-4 text-sm text-gray-700">
-                      {slot.comment}
-                    </div>
-                  )}
-
-                  <div className="mt-4 grid gap-2 md:grid-cols-2">
-                    <ApplyButton slotId={slot.id} />
-
+                  <div className="mt-4 flex flex-wrap gap-2">
                     <a
-                      href={`/slots?focus=${restaurant.id}`}
-                      className="inline-flex items-center justify-center rounded-lg border px-4 py-3 text-gray-700 hover:bg-gray-50"
+                      href={`/restaurants/${restaurant.id}`}
+                      className="rounded-lg bg-red-500 px-4 py-3 text-white hover:bg-red-600"
                     >
-                      Показать ресторан на карте
+                      Выбрать этот ресторан
                     </a>
+
+                    <button
+                      type="button"
+                      onClick={() => handleShowOnMap(restaurant.id)}
+                      className="rounded-lg border px-4 py-3 text-gray-700 hover:bg-gray-50"
+                    >
+                      Показать на карте
+                    </button>
                   </div>
                 </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
-      <ContactCard />
-    </main>
+      {view === 'map' && (
+        <section id="map-section" className="space-y-4">
+          <div className="rounded-2xl border bg-white p-6 shadow-sm">
+            <h2 className="mb-2 text-xl font-semibold">Карта ресторанов</h2>
+            <p className="text-sm text-gray-600">
+              Можно приблизить карту и затем вернуться к списку. Для выбора смен чаще
+              удобнее использовать список ресторанов.
+            </p>
+          </div>
+
+          <div className="overflow-hidden rounded-2xl border bg-white shadow-sm">
+            <YandexMap
+              restaurants={restaurants}
+              focusRestaurantId={focusedRestaurantId}
+            />
+          </div>
+
+          {focusedRestaurantId && (
+            <div className="rounded-2xl border bg-white p-4 shadow-sm">
+              <a
+                href={`/restaurants/${focusedRestaurantId}`}
+                className="inline-flex rounded-lg bg-red-500 px-4 py-3 text-white hover:bg-red-600"
+              >
+                Перейти к сменам выбранного ресторана
+              </a>
+            </div>
+          )}
+        </section>
+      )}
+    </div>
   );
 }

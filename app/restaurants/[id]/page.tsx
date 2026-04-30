@@ -1,9 +1,10 @@
-import Link from 'next/link';
-
 import ApplyButton from '@/app/components/ApplyButton';
 import ContactCard from '@/app/components/ContactCard';
 import { getShiftMeta } from '@/lib/shift';
 import { supabase } from '@/lib/supabase';
+
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -98,12 +99,13 @@ export default async function RestaurantPage({ params }: PageProps) {
       <main className="mx-auto max-w-5xl space-y-6 p-4 md:p-6">
         <div className="rounded-2xl border bg-white p-6 shadow-sm">
           <h1 className="mb-2 text-2xl font-semibold">Ресторан не найден</h1>
-          <Link
+
+          <a
             href="/slots"
             className="inline-flex rounded-lg border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
           >
             Вернуться к списку ресторанов
-          </Link>
+          </a>
         </div>
       </main>
     );
@@ -112,19 +114,23 @@ export default async function RestaurantPage({ params }: PageProps) {
   return (
     <main className="mx-auto max-w-5xl space-y-6 p-4 md:p-6">
       <div>
-        <Link
+        <a
           href="/slots"
           className="inline-flex rounded-lg border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
         >
           ← Назад к списку ресторанов
-        </Link>
+        </a>
       </div>
 
       <section className="rounded-2xl border bg-white p-6 shadow-sm">
-        <div className="mb-2 text-sm font-medium text-red-600">Подработки в ROSTIC’S</div>
+        <div className="mb-2 text-sm font-medium text-red-600">
+          Подработки в ROSTIC’S
+        </div>
+
         <h1 className="mb-2 text-3xl font-bold tracking-tight text-gray-900">
           {restaurant.name}
         </h1>
+
         <p className="text-sm text-gray-600">
           {[restaurant.city, restaurant.address, restaurant.metro]
             .filter(Boolean)
@@ -132,12 +138,12 @@ export default async function RestaurantPage({ params }: PageProps) {
         </p>
 
         <div className="mt-4">
-          <Link
+          <a
             href={`/slots?focus=${restaurant.id}`}
             className="inline-flex rounded-lg border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
           >
             Показать на карте
-          </Link>
+          </a>
         </div>
       </section>
 
@@ -163,32 +169,33 @@ export default async function RestaurantPage({ params }: PageProps) {
               const meta = getShiftMeta(slot.time_from, slot.time_to);
 
               return (
-                <div
-                  key={slot.id}
-                  className="rounded-2xl border p-5"
-                >
+                <div key={slot.id} className="rounded-2xl border p-5">
                   <div className="mb-3 flex flex-wrap items-center gap-2">
                     {slot.is_hot && (
                       <span className="rounded-full bg-red-100 px-2 py-1 text-xs text-red-700">
                         Горячая смена
                       </span>
                     )}
+
                     <span className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-700">
                       {formatDateRu(slot.work_date)}
                     </span>
                   </div>
 
-                  <h3 className="text-lg font-semibold text-gray-900">{slot.position}</h3>
+                  <h3 className="text-lg font-semibold text-gray-900">
+                    {slot.position}
+                  </h3>
 
                   <div className="mt-4 grid gap-3 md:grid-cols-2">
                     <div className="text-sm text-gray-700">
-                      <span className="text-gray-500">Время:</span> {slot.time_from} –{' '}
-                      {slot.time_to}
+                      <span className="text-gray-500">Время:</span>{' '}
+                      {slot.time_from} – {slot.time_to}
                       {meta.overnight ? ' (следующий день)' : ''}
                     </div>
 
                     <div className="text-sm text-gray-700">
-                      <span className="text-gray-500">Оплата:</span> {slot.hourly_rate} ₽/час
+                      <span className="text-gray-500">Оплата:</span>{' '}
+                      {slot.hourly_rate} ₽/час
                     </div>
 
                     <div className="text-sm text-gray-700">
@@ -211,12 +218,12 @@ export default async function RestaurantPage({ params }: PageProps) {
                   <div className="mt-4 grid gap-2 md:grid-cols-2">
                     <ApplyButton slotId={slot.id} />
 
-                    <Link
+                    <a
                       href={`/slots?focus=${restaurant.id}`}
                       className="inline-flex items-center justify-center rounded-lg border px-4 py-3 text-gray-700 hover:bg-gray-50"
                     >
                       Показать ресторан на карте
-                    </Link>
+                    </a>
                   </div>
                 </div>
               );
