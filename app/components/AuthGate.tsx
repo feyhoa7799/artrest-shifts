@@ -104,11 +104,29 @@ async function readJsonSafe(res: Response) {
   }
 }
 
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T) {
+  return new Promise<T>((resolve) => {
+    const timer = window.setTimeout(() => {
+      resolve(fallback);
+    }, timeoutMs);
+
+    promise
+      .then((value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      })
+      .catch(() => {
+        window.clearTimeout(timer);
+        resolve(fallback);
+      });
+  });
+}
+
 export default function AuthGate() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [sessionUser, setSessionUser] = useState<User | null>(null);
   const [needsPasswordSetup, setNeedsPasswordSetup] = useState(false);
 
@@ -160,6 +178,12 @@ export default function AuthGate() {
   const phoneIsValid = /^\+7\d{10}$/.test(profile.phone || '');
   const completeProfileRequired = searchParams.get('completeProfile') === '1';
 
+  const profileReady = isProfileComplete(profile);
+
+  const homeRestaurantName = restaurants.find(
+    (restaurant) => restaurant.id === profile.home_restaurant_id
+  )?.name;
+
   function resetCaptcha() {
     setCaptchaToken(null);
     setCaptchaKey((prev) => prev + 1);
@@ -205,13 +229,22 @@ export default function AuthGate() {
   }
 
   async function loadRestaurants() {
-    const { data } = await supabase
-      .from('restaurants')
-      .select('id, name')
-      .eq('is_active', true)
-      .order('name', { ascending: true });
+    try {
+      const res = await fetch('/api/restaurants', {
+        cache: 'no-store',
+      });
 
-    setRestaurants((data || []) as Restaurant[]);
+      const data = await readJsonSafe(res);
+
+      if (!res.ok || !Array.isArray(data?.restaurants)) {
+        setRestaurants([]);
+        return;
+      }
+
+      setRestaurants(data.restaurants as Restaurant[]);
+    } catch {
+      setRestaurants([]);
+    }
   }
 
   async function loadAdminAccess(accessToken?: string | null) {
@@ -313,14 +346,15 @@ export default function AuthGate() {
   }
 
   async function hydrate() {
-    setLoading(true);
+    const emptySessionResult = {
+      data: { session: null },
+      error: null,
+    } as Awaited<ReturnType<typeof supabase.auth.getSession>>;
 
     try {
-      await loadRestaurants();
-
       const {
         data: { session },
-      } = await supabase.auth.getSession();
+      } = await withTimeout(supabase.auth.getSession(), 5000, emptySessionResult);
 
       const user = session?.user || null;
       const accessToken = session?.access_token || null;
@@ -357,11 +391,13 @@ export default function AuthGate() {
         return;
       }
 
+      setLoading(true);
       setSessionUser(user);
       setNeedsPasswordSetup(false);
 
       await syncSessionFlags(accessToken);
       await Promise.all([
+        loadRestaurants(),
         loadProfile(accessToken, user),
         loadAdminAccess(accessToken),
       ]);
@@ -722,12 +758,6 @@ export default function AuthGate() {
     await hydrate();
   }
 
-  const profileReady = isProfileComplete(profile);
-
-  const homeRestaurantName = restaurants.find(
-    (restaurant) => restaurant.id === profile.home_restaurant_id
-  )?.name;
-
   if (loading) {
     return (
       <div className="rounded-2xl border bg-white p-6 shadow-sm">
@@ -794,7 +824,7 @@ export default function AuthGate() {
 
           <div className="rounded-xl bg-gray-50 p-4 text-sm text-gray-700">
             <p className="mb-2 font-medium">Требования к паролю:</p>
-            <ul className="list-disc pl-5 space-y-1">
+            <ul className="list-disc space-y-1 pl-5">
               <li>минимум 8 символов</li>
               <li>минимум 1 заглавная латинская буква</li>
               <li>минимум 1 строчная латинская буква</li>
@@ -1055,34 +1085,44 @@ export default function AuthGate() {
   return (
     <div className="space-y-6">
       <div className="rounded-2xl border bg-white p-6 shadow-sm">
-        <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+        <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h2 className="text-2xl font-semibold">Личный кабинет</h2>
-            <p className="mt-1 text-sm text-gray-600">{sessionUser.email}</p>
+            <h2 className="mb-1 text-2xl font-semibold">Личный кабинет</h2>
+            <p className="text-sm text-gray-600">
+              Вы вошли как {sessionUser.email || profile.email || 'пользователь'}.
+            </p>
           </div>
 
           <div className="flex flex-wrap gap-2">
             {adminState.isAdmin && (
               <Link
                 href="/admin"
-                className="rounded-lg border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                className="rounded-lg border px-4 py-3 text-gray-700 hover:bg-gray-50"
               >
-                Администратор
+                Админ-панель
+              </Link>
+            )}
+
+            <Link
+              href="/my-applications"
+              className="rounded-lg border px-4 py-3 text-gray-700 hover:bg-gray-50"
+            >
+              Мои отклики
+            </Link>
+
+            {profileReady && !profile.is_blocked && (
+              <Link
+                href="/slots"
+                className="rounded-lg bg-red-500 px-4 py-3 text-white hover:bg-red-600"
+              >
+                Смотреть смены
               </Link>
             )}
 
             <button
               type="button"
-              onClick={() => setProfileEditorOpen((prev) => !prev)}
-              className="rounded-lg border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-            >
-              {profileEditorOpen ? 'Свернуть профиль' : 'Редактировать профиль'}
-            </button>
-
-            <button
-              type="button"
               onClick={handleLogout}
-              className="rounded-lg border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+              className="rounded-lg border px-4 py-3 text-gray-700 hover:bg-gray-50"
             >
               Выйти
             </button>
@@ -1101,169 +1141,201 @@ export default function AuthGate() {
           </div>
         )}
 
-        {profileReady && !profile.is_blocked && (
-          <div className="mb-6 rounded-2xl border bg-red-50 p-5">
-            <div className="mb-3 text-lg font-semibold text-gray-900">
-              Куда нажать, чтобы выбрать смену?
-            </div>
-            <p className="mb-4 text-sm text-gray-700">
-              Нажмите кнопку ниже. Сначала откроется список ресторанов с доступными сменами,
-              а затем вы сможете перейти к конкретному ресторану и отправить отклик.
-            </p>
-
-            <div className="flex flex-wrap gap-2">
-              <Link
-                href="/slots"
-                className="rounded-lg bg-red-500 px-4 py-3 text-white hover:bg-red-600"
-              >
-                Выбрать ресторан и смену
-              </Link>
-
-              <Link
-                href="/my-applications"
-                className="rounded-lg border px-4 py-3 text-gray-700 hover:bg-gray-50"
-              >
-                Мои отклики
-              </Link>
-            </div>
-          </div>
-        )}
-
-        <ApprovedShiftsCard />
-
         {profile.is_blocked && (
           <div className="mb-4 rounded-xl bg-red-50 p-4 text-sm text-red-700">
-            Ваш профиль заблокирован. Обратитесь в HR.
+            Ваш профиль заблокирован. Доступ к откликам на смены ограничен.
           </div>
         )}
 
-        {!profileReady && !profile.is_blocked && (
-          <div className="mb-4 rounded-xl bg-yellow-50 p-4 text-sm text-yellow-700">
-            Сначала заполните профиль. Пока профиль не заполнен, смены и внутренние разделы недоступны.
-          </div>
-        )}
+        {profileReady && !profileEditorOpen ? (
+          <div className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="rounded-xl bg-gray-50 p-4">
+                <div className="mb-1 text-sm text-gray-500">ФИО</div>
+                <div className="font-medium text-gray-900">{profile.full_name}</div>
+              </div>
 
-        {!profileEditorOpen ? (
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="rounded-xl bg-gray-50 p-4">
-              <div className="mb-1 text-sm text-gray-500">ФИО</div>
-              <div className="font-medium">{profile.full_name || 'Не заполнено'}</div>
+              <div className="rounded-xl bg-gray-50 p-4">
+                <div className="mb-1 text-sm text-gray-500">Телефон</div>
+                <div className="font-medium text-gray-900">{profile.phone}</div>
+              </div>
+
+              <div className="rounded-xl bg-gray-50 p-4">
+                <div className="mb-1 text-sm text-gray-500">Должность</div>
+                <div className="font-medium text-gray-900">{profile.role}</div>
+              </div>
+
+              <div className="rounded-xl bg-gray-50 p-4">
+                <div className="mb-1 text-sm text-gray-500">Домашний ресторан</div>
+                <div className="font-medium text-gray-900">
+                  {homeRestaurantName || 'Ресторан выбран'}
+                </div>
+              </div>
             </div>
 
-            <div className="rounded-xl bg-gray-50 p-4">
-              <div className="mb-1 text-sm text-gray-500">Телефон</div>
-              <div className="font-medium">{profile.phone || 'Не заполнено'}</div>
-            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setProfileEditorOpen(true)}
+                className="rounded-lg border px-4 py-3 text-gray-700 hover:bg-gray-50"
+              >
+                Изменить профиль
+              </button>
 
-            <div className="rounded-xl bg-gray-50 p-4">
-              <div className="mb-1 text-sm text-gray-500">Должность</div>
-              <div className="font-medium">{profile.role || 'Не заполнено'}</div>
-            </div>
-
-            <div className="rounded-xl bg-gray-50 p-4">
-              <div className="mb-1 text-sm text-gray-500">Домашний ресторан</div>
-              <div className="font-medium">{homeRestaurantName || 'Не заполнено'}</div>
+              {!profile.is_blocked && (
+                <Link
+                  href="/slots"
+                  className="rounded-lg bg-red-500 px-4 py-3 text-white hover:bg-red-600"
+                >
+                  Перейти к сменам
+                </Link>
+              )}
             </div>
           </div>
         ) : (
-          <div className="space-y-6">
-            <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">ФИО</label>
-                <input
-                  value={profile.full_name}
-                  onChange={(e) =>
-                    setProfile((prev) => ({ ...prev, full_name: e.target.value }))
-                  }
-                  className="w-full rounded-lg border p-3"
-                />
-              </div>
-
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">
-                  Телефон РФ
-                </label>
-                <input
-                  value={profile.phone}
-                  onChange={(e) =>
-                    setProfile((prev) => ({
-                      ...prev,
-                      phone: normalizeRussianPhoneInput(e.target.value),
-                    }))
-                  }
-                  className="w-full rounded-lg border p-3"
-                />
-              </div>
-
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">
-                  Должность
-                </label>
-                <select
-                  value={profile.role}
-                  onChange={(e) =>
-                    setProfile((prev) => ({ ...prev, role: e.target.value }))
-                  }
-                  className="w-full rounded-lg border p-3"
-                >
-                  <option value="">Выберите должность</option>
-                  {ROLES.map((role) => (
-                    <option key={role} value={role}>
-                      {role}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">
-                  Домашний ресторан
-                </label>
-                <select
-                  value={profile.home_restaurant_id}
-                  onChange={(e) =>
-                    setProfile((prev) => ({
-                      ...prev,
-                      home_restaurant_id: Number(e.target.value),
-                    }))
-                  }
-                  className="w-full rounded-lg border p-3"
-                >
-                  <option value="">Выберите ресторан</option>
-                  {restaurants.map((restaurant) => (
-                    <option key={restaurant.id} value={restaurant.id}>
-                      {restaurant.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+          <div className="space-y-4">
+            <div className="rounded-xl bg-gray-50 p-4 text-sm text-gray-700">
+              Заполните профиль, чтобы получить доступ к сменам.
             </div>
 
-            <TelegramLinkCard />
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                Email
+              </label>
+              <input
+                value={profile.email || sessionUser.email || ''}
+                disabled
+                className="w-full rounded-lg border bg-gray-50 p-3 text-gray-600"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                ФИО
+              </label>
+              <input
+                value={profile.full_name}
+                onChange={(e) =>
+                  setProfile((prev) => ({
+                    ...prev,
+                    full_name: e.target.value,
+                  }))
+                }
+                className="w-full rounded-lg border p-3"
+                placeholder="Иванов Иван"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                Телефон
+              </label>
+              <input
+                value={profile.phone}
+                onChange={(e) =>
+                  setProfile((prev) => ({
+                    ...prev,
+                    phone: normalizeRussianPhoneInput(e.target.value),
+                  }))
+                }
+                className="w-full rounded-lg border p-3"
+                placeholder="+7XXXXXXXXXX"
+              />
+
+              {!phoneIsValid && (
+                <p className="mt-1 text-xs text-red-600">
+                  Телефон должен быть в формате +7XXXXXXXXXX.
+                </p>
+              )}
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                Должность
+              </label>
+              <select
+                value={profile.role}
+                onChange={(e) =>
+                  setProfile((prev) => ({
+                    ...prev,
+                    role: e.target.value,
+                  }))
+                }
+                className="w-full rounded-lg border p-3"
+              >
+                <option value="">Выберите должность</option>
+                {ROLES.map((role) => (
+                  <option key={role} value={role}>
+                    {role}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                Домашний ресторан
+              </label>
+              <select
+                value={profile.home_restaurant_id}
+                onChange={(e) =>
+                  setProfile((prev) => ({
+                    ...prev,
+                    home_restaurant_id: e.target.value ? Number(e.target.value) : '',
+                  }))
+                }
+                className="w-full rounded-lg border p-3"
+              >
+                <option value="">Выберите ресторан</option>
+                {restaurants.map((restaurant) => (
+                  <option key={restaurant.id} value={restaurant.id}>
+                    {restaurant.name}
+                  </option>
+                ))}
+              </select>
+
+              {restaurants.length === 0 && (
+                <p className="mt-1 text-xs text-gray-500">
+                  Список ресторанов пока не загрузился. Обновите страницу или попробуйте позже.
+                </p>
+              )}
+            </div>
 
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={handleSaveProfile}
-                disabled={savingProfile || (!profileDirty && profileReady)}
+                disabled={savingProfile}
                 className="rounded-lg bg-red-500 px-4 py-3 text-white hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {savingProfile ? 'Сохраняю...' : 'Сохранить профиль'}
+                {savingProfile ? 'Сохраняю профиль...' : 'Сохранить профиль'}
               </button>
 
-              <button
-                type="button"
-                onClick={() => setProfileEditorOpen(false)}
-                className="rounded-lg border px-4 py-3 text-gray-700 hover:bg-gray-50"
-              >
-                Свернуть
-              </button>
+              {profileReady && (
+                <button
+                  type="button"
+                  onClick={() => setProfileEditorOpen(false)}
+                  className="rounded-lg border px-4 py-3 text-gray-700 hover:bg-gray-50"
+                >
+                  Отмена
+                </button>
+              )}
+
+              {profileDirty && (
+                <div className="flex items-center text-sm text-gray-500">
+                  Есть несохранённые изменения
+                </div>
+              )}
             </div>
-
-            <ChangePasswordForm email={sessionUser.email || ''} />
           </div>
         )}
       </div>
+
+      {profileReady && !profile.is_blocked && <ApprovedShiftsCard />}
+
+      {profileReady && !profile.is_blocked && <TelegramLinkCard />}
+
+      <ChangePasswordForm email={sessionUser.email || profile.email} />
     </div>
   );
 }
