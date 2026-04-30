@@ -45,6 +45,10 @@ type AdminState = {
   isSuperadmin: boolean;
 };
 
+type HydrateOptions = {
+  force?: boolean;
+};
+
 const emptyProfile: Profile = {
   user_id: '',
   email: '',
@@ -134,7 +138,9 @@ export default function AuthGate() {
   const [mode, setMode] = useState<'login' | 'register'>(
     searchParams.get('auth') === 'register' ? 'register' : 'login'
   );
-  const [registerStep, setRegisterStep] = useState<'email' | 'code' | 'password'>('email');
+  const [registerStep, setRegisterStep] = useState<'email' | 'code' | 'password'>(
+    'email'
+  );
 
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -146,7 +152,9 @@ export default function AuthGate() {
   const [consentChecked, setConsentChecked] = useState(false);
 
   const [profile, setProfile] = useState<Profile>(emptyProfile);
-  const [savedProfileKey, setSavedProfileKey] = useState(profileFingerprint(emptyProfile));
+  const [savedProfileKey, setSavedProfileKey] = useState(
+    profileFingerprint(emptyProfile)
+  );
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [profileEditorOpen, setProfileEditorOpen] = useState(true);
   const [adminState, setAdminState] = useState<AdminState>({
@@ -168,6 +176,8 @@ export default function AuthGate() {
   const [captchaKey, setCaptchaKey] = useState(0);
 
   const mountedRef = useRef(false);
+  const hydratingRef = useRef(false);
+  const lastHydrateStartedAtRef = useRef(0);
 
   const passwordCheck = useMemo(
     () => validatePasswordStrength(registerPassword, registerEmail),
@@ -346,7 +356,20 @@ export default function AuthGate() {
     setProfileEditorOpen(true);
   }
 
-  async function hydrate() {
+  async function hydrate(options: HydrateOptions = {}) {
+    const now = Date.now();
+
+    if (hydratingRef.current) {
+      return;
+    }
+
+    if (!options.force && now - lastHydrateStartedAtRef.current < 1500) {
+      return;
+    }
+
+    hydratingRef.current = true;
+    lastHydrateStartedAtRef.current = now;
+
     const emptySessionResult = {
       data: { session: null },
       error: null,
@@ -400,6 +423,7 @@ export default function AuthGate() {
       setNeedsPasswordSetup(false);
 
       await syncSessionFlags(accessToken);
+
       await Promise.all([
         loadRestaurants(),
         loadProfile(accessToken, user),
@@ -412,6 +436,8 @@ export default function AuthGate() {
     } catch {
       if (!mountedRef.current) return;
       setLoading(false);
+    } finally {
+      hydratingRef.current = false;
     }
   }
 
@@ -432,12 +458,16 @@ export default function AuthGate() {
       showNotice('Сначала заполните профиль, чтобы получить доступ к сменам.');
     }
 
-    hydrate();
+    void hydrate({ force: true });
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(() => {
-      hydrate();
+    } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'INITIAL_SESSION') {
+        return;
+      }
+
+      void hydrate();
     });
 
     return () => {
@@ -571,8 +601,6 @@ export default function AuthGate() {
       if (accessToken) {
         setSessionAccessToken(accessToken);
         await savePrivacyConsent(accessToken);
-        await syncSessionFlags(accessToken);
-        await loadAdminAccess(accessToken);
       }
 
       if (typeof window !== 'undefined') {
@@ -617,14 +645,6 @@ export default function AuthGate() {
         showError(error.message);
         resetCaptcha();
         return;
-      }
-
-      const accessToken = await getAccessToken();
-
-      if (accessToken) {
-        setSessionAccessToken(accessToken);
-        await syncSessionFlags(accessToken);
-        await loadAdminAccess(accessToken);
       }
 
       showNotice('Вход выполнен.');
@@ -734,9 +754,7 @@ export default function AuthGate() {
       }
 
       setSessionAccessToken(accessToken);
-      await syncSessionFlags(accessToken);
-      await loadAdminAccess(accessToken);
-      await hydrate();
+      await hydrate({ force: true });
 
       showNotice('Профиль сохранён. Доступ к сервису открыт.');
       router.push('/slots');
