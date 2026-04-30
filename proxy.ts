@@ -29,6 +29,10 @@ function isProtectedWorkerPath(pathname: string) {
   );
 }
 
+function isAuthOnlyPath(pathname: string) {
+  return pathname.startsWith('/profile');
+}
+
 function applyNoIndexHeader(response: NextResponse | Response) {
   response.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
   return response;
@@ -52,6 +56,14 @@ export function proxy(req: NextRequest) {
     return applyNoIndexHeader(NextResponse.next());
   }
 
+  if (isAuthOnlyPath(pathname)) {
+    if (!appAuth) {
+      return applyNoIndexHeader(redirectToHome(req, 'login'));
+    }
+
+    return applyNoIndexHeader(NextResponse.next());
+  }
+
   if (isProtectedWorkerPath(pathname)) {
     if (!appAuth) {
       return redirectToHome(req, 'login');
@@ -66,5 +78,11 @@ export function proxy(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/admin/:path*', '/slots/:path*', '/my-applications/:path*', '/restaurants/:path*'],
+  matcher: [
+    '/admin/:path*',
+    '/profile/:path*',
+    '/slots/:path*',
+    '/my-applications/:path*',
+    '/restaurants/:path*',
+  ],
 };

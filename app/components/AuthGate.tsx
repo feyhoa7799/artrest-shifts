@@ -7,7 +7,6 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Turnstile from 'react-turnstile';
 
 import ApprovedShiftsCard from '@/app/components/ApprovedShiftsCard';
-import ChangePasswordForm from '@/app/components/ChangePasswordForm';
 import TelegramLinkCard from '@/app/components/TelegramLinkCard';
 import { validatePasswordStrength } from '@/lib/password';
 import { supabase } from '@/lib/supabase';
@@ -1430,7 +1429,6 @@ export default function AuthGate() {
         <TelegramLinkCard accessToken={sessionAccessToken} />
       )}
 
-      <ChangePasswordForm email={sessionUser.email || profile.email} />
     </div>
   );
 }

@@ -53,11 +53,17 @@ export default function MobileBottomNav() {
       icon: '✓',
       active: pathname.startsWith('/my-applications'),
     },
+    {
+      href: '/profile',
+      label: 'Профиль',
+      icon: '●',
+      active: pathname.startsWith('/profile'),
+    },
   ];
 
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 border-t bg-white/95 px-3 pb-[calc(0.5rem+env(safe-area-inset-bottom))] pt-2 shadow-[0_-8px_24px_rgba(0,0,0,0.08)] backdrop-blur md:hidden">
-      <div className="mx-auto grid max-w-3xl grid-cols-3 gap-2">
+    <nav className="fixed inset-x-0 bottom-0 z-40 border-t bg-white/95 px-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] pt-2 shadow-[0_-8px_24px_rgba(0,0,0,0.08)] backdrop-blur md:hidden">
+      <div className="mx-auto grid max-w-3xl grid-cols-4 gap-1.5">
         {items.map((item) => {
           const pending = pendingHref === item.href;
 
@@ -68,7 +74,7 @@ export default function MobileBottomNav() {
               aria-current={item.active ? 'page' : undefined}
               onPointerDown={() => setPendingHref(item.href)}
               onClick={() => setPendingHref(item.href)}
-              className={`flex min-h-[64px] touch-manipulation flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 text-center text-xs font-semibold transition duration-150 ${itemClass(
+              className={`flex min-h-[66px] touch-manipulation flex-col items-center justify-center gap-1 rounded-2xl px-1.5 py-2 text-center text-[11px] font-semibold transition duration-150 ${itemClass(
                 item.active,
                 pending
               )}`}
