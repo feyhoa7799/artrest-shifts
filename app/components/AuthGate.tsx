@@ -78,9 +78,36 @@ function normalizeRussianPhoneInput(value: string) {
   return `+7${digits}`;
 }
 
+function normalizeFullNameInput(value: string) {
+  return value.replace(/[^А-Яа-яЁё\s-]/g, '');
+}
+
+function normalizeFullNameForSave(value: string) {
+  return normalizeFullNameInput(value)
+    .replace(/\s+/g, ' ')
+    .replace(/-+/g, '-')
+    .trim();
+}
+
+function isValidCyrillicFullName(value: string) {
+  const normalized = normalizeFullNameForSave(value);
+
+  if (!normalized) return false;
+
+  if (normalized.length < 5) return false;
+
+  if (!/^[А-Яа-яЁё]+(?:[\s-][А-Яа-яЁё]+)*$/.test(normalized)) {
+    return false;
+  }
+
+  const words = normalized.split(/\s+/).filter(Boolean);
+
+  return words.length >= 2;
+}
+
 function profileFingerprint(profile: Profile) {
   return JSON.stringify({
-    full_name: profile.full_name.trim(),
+    full_name: normalizeFullNameForSave(profile.full_name),
     phone: profile.phone.trim(),
     role: profile.role,
     home_restaurant_id: profile.home_restaurant_id || '',
@@ -89,7 +116,7 @@ function profileFingerprint(profile: Profile) {
 
 function isProfileComplete(profile: Profile) {
   return Boolean(
-    profile.full_name &&
+    isValidCyrillicFullName(profile.full_name) &&
       profile.role &&
       profile.home_restaurant_id &&
       /^\+7\d{10}$/.test(profile.phone || '')
@@ -187,6 +214,7 @@ export default function AuthGate() {
   const currentProfileKey = useMemo(() => profileFingerprint(profile), [profile]);
   const profileDirty = currentProfileKey !== savedProfileKey;
   const phoneIsValid = /^\+7\d{10}$/.test(profile.phone || '');
+  const fullNameIsValid = isValidCyrillicFullName(profile.full_name);
   const completeProfileRequired = searchParams.get('completeProfile') === '1';
 
   const profileReady = isProfileComplete(profile);
@@ -208,6 +236,14 @@ export default function AuthGate() {
   function showNotice(message: string) {
     setNotice(message);
     setError('');
+  }
+
+  function goToProtectedPage(path: string) {
+    router.refresh();
+
+    window.setTimeout(() => {
+      window.location.assign(path);
+    }, 0);
   }
 
   async function getAccessToken() {
@@ -551,7 +587,7 @@ export default function AuthGate() {
       setNeedsPasswordSetup(true);
       setRegisterStep('password');
       showNotice('Почта подтверждена. Теперь задайте пароль.');
-      await hydrate();
+      await hydrate({ force: true });
     } finally {
       setVerifyingCode(false);
     }
@@ -611,7 +647,7 @@ export default function AuthGate() {
       setRegisterPassword('');
       setRegisterPasswordRepeat('');
       showNotice('Пароль сохранён. Теперь заполните профиль.');
-      await hydrate();
+      await hydrate({ force: true });
     } finally {
       setSettingPassword(false);
     }
@@ -703,8 +739,15 @@ export default function AuthGate() {
       return;
     }
 
-    if (!profile.full_name.trim()) {
+    const fullName = normalizeFullNameForSave(profile.full_name);
+
+    if (!fullName) {
       showError('Введите ФИО');
+      return;
+    }
+
+    if (!isValidCyrillicFullName(fullName)) {
+      showError('ФИО должно быть кириллицей: фамилия и имя, без латиницы и цифр');
       return;
     }
 
@@ -740,7 +783,7 @@ export default function AuthGate() {
           Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({
-          full_name: profile.full_name.trim(),
+          full_name: fullName,
           phone: profile.phone.trim(),
           role: profile.role,
           home_restaurant_id: Number(profile.home_restaurant_id),
@@ -754,12 +797,16 @@ export default function AuthGate() {
         return;
       }
 
+      setProfile((prev) => ({
+        ...prev,
+        full_name: fullName,
+      }));
       setSessionAccessToken(accessToken);
+
       await hydrate({ force: true });
 
       showNotice('Профиль сохранён. Доступ к сервису открыт.');
-      router.push('/slots');
-      router.refresh();
+      window.location.assign('/slots');
     } finally {
       setSavingProfile(false);
     }
@@ -782,7 +829,7 @@ export default function AuthGate() {
     setNeedsPasswordSetup(false);
     setAdminState({ isAdmin: false, isSuperadmin: false });
     resetCaptcha();
-    await hydrate();
+    await hydrate({ force: true });
   }
 
   if (loading) {
@@ -1122,31 +1169,31 @@ export default function AuthGate() {
 
           <div className="flex flex-wrap gap-2">
             {adminState.isAdmin && (
-              <Link
-                href="/admin"
-                prefetch={false}
+              <button
+                type="button"
+                onClick={() => goToProtectedPage('/admin')}
                 className="rounded-lg border px-4 py-3 text-gray-700 hover:bg-gray-50"
               >
                 Админ-панель
-              </Link>
+              </button>
             )}
 
-            <Link
-              href="/my-applications"
-              prefetch={false}
+            <button
+              type="button"
+              onClick={() => goToProtectedPage('/my-applications')}
               className="rounded-lg border px-4 py-3 text-gray-700 hover:bg-gray-50"
             >
               Мои отклики
-            </Link>
+            </button>
 
             {profileReady && !profile.is_blocked && (
-              <Link
-                href="/slots"
-                prefetch={false}
+              <button
+                type="button"
+                onClick={() => goToProtectedPage('/slots')}
                 className="rounded-lg bg-red-500 px-4 py-3 text-white hover:bg-red-600"
               >
                 Смотреть смены
-              </Link>
+              </button>
             )}
 
             <button
@@ -1213,13 +1260,13 @@ export default function AuthGate() {
               </button>
 
               {!profile.is_blocked && (
-                <Link
-                  href="/slots"
-                  prefetch={false}
+                <button
+                  type="button"
+                  onClick={() => goToProtectedPage('/slots')}
                   className="rounded-lg bg-red-500 px-4 py-3 text-white hover:bg-red-600"
                 >
                   Перейти к сменам
-                </Link>
+                </button>
               )}
             </div>
           </div>
@@ -1249,12 +1296,29 @@ export default function AuthGate() {
                 onChange={(e) =>
                   setProfile((prev) => ({
                     ...prev,
-                    full_name: e.target.value,
+                    full_name: normalizeFullNameInput(e.target.value),
+                  }))
+                }
+                onBlur={() =>
+                  setProfile((prev) => ({
+                    ...prev,
+                    full_name: normalizeFullNameForSave(prev.full_name),
                   }))
                 }
                 className="w-full rounded-lg border p-3"
-                placeholder="Иванов Иван"
+                placeholder="Иванов Иван Иванович"
               />
+
+              {!fullNameIsValid && profile.full_name && (
+                <p className="mt-1 text-xs text-red-600">
+                  ФИО должно быть кириллицей: фамилия и имя, без латиницы, цифр и
+                  спецсимволов.
+                </p>
+              )}
+
+              <p className="mt-1 text-xs text-gray-500">
+                Допустимы только русские буквы, пробел и дефис.
+              </p>
             </div>
 
             <div>

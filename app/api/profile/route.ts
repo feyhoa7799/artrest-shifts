@@ -16,6 +16,30 @@ function isValidRussianPhone(phone: string) {
   return /^\+7\d{10}$/.test(phone);
 }
 
+function normalizeFullName(value: string) {
+  return value
+    .replace(/[^А-Яа-яЁё\s-]/g, '')
+    .replace(/\s+/g, ' ')
+    .replace(/-+/g, '-')
+    .trim();
+}
+
+function isValidCyrillicFullName(value: string) {
+  const normalized = normalizeFullName(value);
+
+  if (!normalized) return false;
+
+  if (normalized.length < 5) return false;
+
+  if (!/^[А-Яа-яЁё]+(?:[\s-][А-Яа-яЁё]+)*$/.test(normalized)) {
+    return false;
+  }
+
+  const words = normalized.split(/\s+/).filter(Boolean);
+
+  return words.length >= 2;
+}
+
 async function getUserFromRequest(req: NextRequest) {
   const authHeader = req.headers.get('authorization');
   const token = authHeader?.replace('Bearer ', '').trim();
@@ -67,13 +91,23 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
 
-    const fullName = String(body.full_name || '').trim();
+    const fullName = normalizeFullName(String(body.full_name || ''));
     const phone = String(body.phone || '').trim();
     const role = String(body.role || '').trim();
     const homeRestaurantId = Number(body.home_restaurant_id);
 
     if (!fullName) {
       return NextResponse.json({ error: 'Введите ФИО' }, { status: 400 });
+    }
+
+    if (!isValidCyrillicFullName(fullName)) {
+      return NextResponse.json(
+        {
+          error:
+            'ФИО должно быть указано кириллицей: фамилия и имя, без латиницы, цифр и спецсимволов',
+        },
+        { status: 400 }
+      );
     }
 
     if (!isValidRussianPhone(phone)) {
