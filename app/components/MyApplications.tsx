@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { supabase } from '@/lib/supabase';
 
@@ -133,6 +133,36 @@ function pluralRu(value: number, one: string, few: string, many: string) {
   return many;
 }
 
+async function readJsonSafe(res: Response) {
+  const text = await res.text();
+
+  if (!text) return null;
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T) {
+  return new Promise<T>((resolve) => {
+    const timer = window.setTimeout(() => {
+      resolve(fallback);
+    }, timeoutMs);
+
+    promise
+      .then((value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      })
+      .catch(() => {
+        window.clearTimeout(timer);
+        resolve(fallback);
+      });
+  });
+}
+
 export default function MyApplications({ embedded = false }: MyApplicationsProps) {
   const [items, setItems] = useState<MyApplication[]>([]);
   const [loading, setLoading] = useState(true);
@@ -141,42 +171,78 @@ export default function MyApplications({ embedded = false }: MyApplicationsProps
   const [notice, setNotice] = useState('');
   const [cancellingId, setCancellingId] = useState<number | null>(null);
 
-  async function loadApplications() {
-    setLoading(true);
-    setError('');
+  const mountedRef = useRef(false);
+  const loadingApplicationsRef = useRef(false);
+
+  async function getAccessToken() {
+    const emptySessionResult = {
+      data: { session: null },
+      error: null,
+    } as Awaited<ReturnType<typeof supabase.auth.getSession>>;
 
     const {
       data: { session },
-    } = await supabase.auth.getSession();
+    } = await withTimeout(supabase.auth.getSession(), 5000, emptySessionResult);
 
-    if (!session?.access_token) {
-      setItems([]);
-      setLoading(false);
+    return session?.access_token || null;
+  }
+
+  async function loadApplications(options: { force?: boolean } = {}) {
+    if (loadingApplicationsRef.current && !options.force) {
       return;
     }
 
+    loadingApplicationsRef.current = true;
+
+    if (mountedRef.current) {
+      setLoading(true);
+      setError('');
+    }
+
     try {
+      const accessToken = await getAccessToken();
+
+      if (!accessToken) {
+        if (mountedRef.current) {
+          setItems([]);
+          setError('Нет активной сессии. Обновите страницу или войдите заново.');
+        }
+
+        return;
+      }
+
       const res = await fetch('/api/my-applications', {
         headers: {
-          Authorization: `Bearer ${session.access_token}`,
+          Authorization: `Bearer ${accessToken}`,
         },
         cache: 'no-store',
       });
 
-      const data = await res.json();
+      const data = await readJsonSafe(res);
 
       if (!res.ok) {
-        setError(data?.error || 'Ошибка загрузки откликов');
-        setItems([]);
+        if (mountedRef.current) {
+          setError(data?.error || 'Ошибка загрузки откликов');
+          setItems([]);
+        }
+
         return;
       }
 
-      setItems(data.applications || []);
+      if (mountedRef.current) {
+        setItems(data?.applications || []);
+      }
     } catch {
-      setError('Ошибка загрузки откликов');
-      setItems([]);
+      if (mountedRef.current) {
+        setError('Ошибка загрузки откликов');
+        setItems([]);
+      }
     } finally {
-      setLoading(false);
+      loadingApplicationsRef.current = false;
+
+      if (mountedRef.current) {
+        setLoading(false);
+      }
     }
   }
 
@@ -186,11 +252,9 @@ export default function MyApplications({ embedded = false }: MyApplicationsProps
     setNotice('');
 
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      const accessToken = await getAccessToken();
 
-      if (!session?.access_token) {
+      if (!accessToken) {
         setError('Нет активной сессии');
         return;
       }
@@ -198,11 +262,11 @@ export default function MyApplications({ embedded = false }: MyApplicationsProps
       const res = await fetch(`/api/my-applications/${applicationId}/cancel`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${session.access_token}`,
+          Authorization: `Bearer ${accessToken}`,
         },
       });
 
-      const data = await res.json();
+      const data = await readJsonSafe(res);
 
       if (!res.ok) {
         setError(data?.error || 'Не удалось отменить отклик');
@@ -210,7 +274,7 @@ export default function MyApplications({ embedded = false }: MyApplicationsProps
       }
 
       setNotice('Отклик отменён. Теперь можно выбрать другую смену на эту дату.');
-      await loadApplications();
+      await loadApplications({ force: true });
     } catch {
       setError('Не удалось отменить отклик');
     } finally {
@@ -219,16 +283,12 @@ export default function MyApplications({ embedded = false }: MyApplicationsProps
   }
 
   useEffect(() => {
+    mountedRef.current = true;
+
     void loadApplications();
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(() => {
-      void loadApplications();
-    });
-
     return () => {
-      subscription.unsubscribe();
+      mountedRef.current = false;
     };
   }, []);
 
@@ -259,15 +319,30 @@ export default function MyApplications({ embedded = false }: MyApplicationsProps
       </div>
 
       {notice && (
-        <div className="rounded-xl bg-green-50 p-4 text-sm text-green-700">{notice}</div>
+        <div className="rounded-xl bg-green-50 p-4 text-sm text-green-700">
+          {notice}
+        </div>
       )}
 
       {error && (
-        <div className="rounded-xl bg-red-50 p-4 text-sm text-red-700">{error}</div>
+        <div className="rounded-xl bg-red-50 p-4 text-sm text-red-700">
+          {error}
+        </div>
       )}
 
-      <div className="text-sm text-gray-600">
-        {items.length} {pluralRu(items.length, 'отклик', 'отклика', 'откликов')}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="text-sm text-gray-600">
+          {items.length} {pluralRu(items.length, 'отклик', 'отклика', 'откликов')}
+        </div>
+
+        <button
+          type="button"
+          onClick={() => void loadApplications({ force: true })}
+          disabled={loading}
+          className="rounded-lg border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {loading ? 'Обновляю...' : 'Обновить'}
+        </button>
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -326,7 +401,9 @@ export default function MyApplications({ embedded = false }: MyApplicationsProps
                 </span>
               </div>
 
-              <h3 className="text-lg font-semibold text-gray-900">{item.restaurant_name}</h3>
+              <h3 className="text-lg font-semibold text-gray-900">
+                {item.restaurant_name}
+              </h3>
 
               <div className="mt-1 text-sm text-gray-600">
                 {[item.city, item.address].filter(Boolean).join(' • ')}
@@ -334,11 +411,13 @@ export default function MyApplications({ embedded = false }: MyApplicationsProps
 
               <div className="mt-4 grid gap-3 md:grid-cols-2">
                 <div className="text-sm text-gray-700">
-                  <span className="text-gray-500">Должность:</span> {item.position || '—'}
+                  <span className="text-gray-500">Должность:</span>{' '}
+                  {item.position || '—'}
                 </div>
 
                 <div className="text-sm text-gray-700">
-                  <span className="text-gray-500">Дата:</span> {formatDateRu(item.work_date)}
+                  <span className="text-gray-500">Дата:</span>{' '}
+                  {formatDateRu(item.work_date)}
                 </div>
 
                 <div className="text-sm text-gray-700">
@@ -371,7 +450,8 @@ export default function MyApplications({ embedded = false }: MyApplicationsProps
               {item.derived_status === 'active' && (
                 <div className="mt-4 rounded-xl bg-green-50 p-4 text-sm text-green-700">
                   Смена подтверждена. Если вам нужно отказаться от этой смены, пожалуйста,
-                  свяжитесь с HR-менеджером. Самостоятельно отменить подтверждённую смену нельзя.
+                  свяжитесь с HR-менеджером. Самостоятельно отменить подтверждённую смену
+                  нельзя.
                 </div>
               )}
 

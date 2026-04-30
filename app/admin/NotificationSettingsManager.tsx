@@ -163,7 +163,7 @@ export default function NotificationSettingsManager() {
 
           <div className="rounded-xl bg-gray-50 p-4 text-sm text-gray-700">
             <p>
-              Текущий отправитель: <b>noreply@podrapotka.art-rest.com</b>
+              Текущий отправитель: <b>noreply@podrabotka.art-rest.com</b>
             </p>
             <p className="mt-1">
               Последнее изменение: <b>{formatDateTime(updatedAt)}</b>
