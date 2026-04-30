@@ -128,6 +128,7 @@ export default function AuthGate() {
 
   const [loading, setLoading] = useState(false);
   const [sessionUser, setSessionUser] = useState<User | null>(null);
+  const [sessionAccessToken, setSessionAccessToken] = useState('');
   const [needsPasswordSetup, setNeedsPasswordSetup] = useState(false);
 
   const [mode, setMode] = useState<'login' | 'register'>(
@@ -361,8 +362,9 @@ export default function AuthGate() {
 
       if (!mountedRef.current) return;
 
-      if (!user) {
+      if (!user || !accessToken) {
         setSessionUser(null);
+        setSessionAccessToken('');
         setNeedsPasswordSetup(false);
         setProfile(emptyProfile);
         setSavedProfileKey(profileFingerprint(emptyProfile));
@@ -383,6 +385,7 @@ export default function AuthGate() {
         pendingEmail.toLowerCase() === user.email.toLowerCase()
       ) {
         setSessionUser(user);
+        setSessionAccessToken(accessToken);
         setNeedsPasswordSetup(true);
         setMode('register');
         setRegisterEmail(user.email);
@@ -393,6 +396,7 @@ export default function AuthGate() {
 
       setLoading(true);
       setSessionUser(user);
+      setSessionAccessToken(accessToken);
       setNeedsPasswordSetup(false);
 
       await syncSessionFlags(accessToken);
@@ -565,6 +569,7 @@ export default function AuthGate() {
       const accessToken = await getAccessToken();
 
       if (accessToken) {
+        setSessionAccessToken(accessToken);
         await savePrivacyConsent(accessToken);
         await syncSessionFlags(accessToken);
         await loadAdminAccess(accessToken);
@@ -617,6 +622,7 @@ export default function AuthGate() {
       const accessToken = await getAccessToken();
 
       if (accessToken) {
+        setSessionAccessToken(accessToken);
         await syncSessionFlags(accessToken);
         await loadAdminAccess(accessToken);
       }
@@ -699,7 +705,7 @@ export default function AuthGate() {
     setSavingProfile(true);
 
     try {
-      const accessToken = await getAccessToken();
+      const accessToken = sessionAccessToken || (await getAccessToken());
 
       if (!accessToken) {
         showError('Сессия не найдена');
@@ -727,6 +733,7 @@ export default function AuthGate() {
         return;
       }
 
+      setSessionAccessToken(accessToken);
       await syncSessionFlags(accessToken);
       await loadAdminAccess(accessToken);
       await hydrate();
@@ -752,6 +759,7 @@ export default function AuthGate() {
     setRegisterPassword('');
     setRegisterPasswordRepeat('');
     setSessionUser(null);
+    setSessionAccessToken('');
     setNeedsPasswordSetup(false);
     setAdminState({ isAdmin: false, isSuperadmin: false });
     resetCaptcha();
@@ -1331,9 +1339,13 @@ export default function AuthGate() {
         )}
       </div>
 
-      {profileReady && !profile.is_blocked && <ApprovedShiftsCard />}
+      {profileReady && !profile.is_blocked && sessionAccessToken && (
+        <ApprovedShiftsCard accessToken={sessionAccessToken} />
+      )}
 
-      {profileReady && !profile.is_blocked && <TelegramLinkCard />}
+      {profileReady && !profile.is_blocked && sessionAccessToken && (
+        <TelegramLinkCard accessToken={sessionAccessToken} />
+      )}
 
       <ChangePasswordForm email={sessionUser.email || profile.email} />
     </div>

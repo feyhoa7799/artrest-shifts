@@ -3,8 +3,6 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 
-import { supabase } from '@/lib/supabase';
-
 type MyApplication = {
   id: number;
   created_at: string;
@@ -25,6 +23,10 @@ type MyApplication = {
   can_cancel: boolean;
 };
 
+type ApprovedShiftsCardProps = {
+  accessToken: string;
+};
+
 function formatDateRu(value: string) {
   const [year, month, day] = value.split('-');
   return `${day}.${month}.${year}`;
@@ -38,7 +40,7 @@ function formatTimeRange(from: string, to: string, overnight: boolean) {
   return overnight ? `${from}–${to} (+1 день)` : `${from}–${to}`;
 }
 
-export default function ApprovedShiftsCard() {
+export default function ApprovedShiftsCard({ accessToken }: ApprovedShiftsCardProps) {
   const [items, setItems] = useState<MyApplication[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -46,18 +48,14 @@ export default function ApprovedShiftsCard() {
     setLoading(true);
 
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (!session?.access_token) {
+      if (!accessToken) {
         setItems([]);
         return;
       }
 
       const res = await fetch('/api/my-applications', {
         headers: {
-          Authorization: `Bearer ${session.access_token}`,
+          Authorization: `Bearer ${accessToken}`,
         },
         cache: 'no-store',
       });
@@ -79,7 +77,7 @@ export default function ApprovedShiftsCard() {
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [accessToken]);
 
   const approvedUpcoming = useMemo(() => {
     return items
@@ -128,10 +126,7 @@ export default function ApprovedShiftsCard() {
 
       <div className="space-y-3">
         {approvedUpcoming.map((item) => (
-          <div
-            key={item.id}
-            className="rounded-xl border p-4"
-          >
+          <div key={item.id} className="rounded-xl border p-4">
             <div className="mb-2 flex flex-wrap items-center gap-2">
               <span className="rounded-full bg-green-100 px-2 py-1 text-xs text-green-700">
                 Подтверждена
@@ -150,7 +145,8 @@ export default function ApprovedShiftsCard() {
             </div>
 
             <div className="mt-2 text-sm text-gray-700">
-              <span className="text-gray-500">Должность:</span> {item.position || '—'}
+              <span className="text-gray-500">Должность:</span>{' '}
+              {item.position || '—'}
             </div>
           </div>
         ))}

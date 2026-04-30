@@ -3,8 +3,6 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
-import { supabase } from '@/lib/supabase';
-
 type TelegramStatus = {
   isLinked: boolean;
   botUsername: string | null;
@@ -21,13 +19,9 @@ type LinkResponse = {
   botUrl: string | null;
 };
 
-async function getAccessToken() {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
-  return session?.access_token || null;
-}
+type TelegramLinkCardProps = {
+  accessToken: string;
+};
 
 function formatDateTime(value: string | null) {
   if (!value) return '—';
@@ -44,7 +38,7 @@ function formatDateTime(value: string | null) {
   }).format(date);
 }
 
-export default function TelegramLinkCard() {
+export default function TelegramLinkCard({ accessToken }: TelegramLinkCardProps) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<TelegramStatus | null>(null);
@@ -56,16 +50,14 @@ export default function TelegramLinkCard() {
     setError('');
 
     try {
-      const token = await getAccessToken();
-
-      if (!token) {
+      if (!accessToken) {
         setError('Нет активной сессии');
         return;
       }
 
       const res = await fetch('/api/telegram/link', {
         headers: {
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${accessToken}`,
         },
         cache: 'no-store',
       });
@@ -87,7 +79,7 @@ export default function TelegramLinkCard() {
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [accessToken]);
 
   async function handleCreateLink() {
     setSaving(true);
@@ -95,9 +87,7 @@ export default function TelegramLinkCard() {
     setNotice('');
 
     try {
-      const token = await getAccessToken();
-
-      if (!token) {
+      if (!accessToken) {
         setError('Нет активной сессии');
         return;
       }
@@ -105,7 +95,7 @@ export default function TelegramLinkCard() {
       const res = await fetch('/api/telegram/link', {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${accessToken}`,
         },
       });
 
@@ -136,9 +126,7 @@ export default function TelegramLinkCard() {
     setNotice('');
 
     try {
-      const token = await getAccessToken();
-
-      if (!token) {
+      if (!accessToken) {
         setError('Нет активной сессии');
         return;
       }
@@ -147,7 +135,7 @@ export default function TelegramLinkCard() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({ enabled }),
       });
