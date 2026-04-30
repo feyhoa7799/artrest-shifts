@@ -239,11 +239,7 @@ export default function AuthGate() {
   }
 
   function goToProtectedPage(path: string) {
-    router.refresh();
-
-    window.setTimeout(() => {
-      window.location.assign(path);
-    }, 0);
+    window.location.href = path;
   }
 
   async function getAccessToken() {
