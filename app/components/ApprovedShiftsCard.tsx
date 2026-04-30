@@ -1,9 +1,9 @@
-'use client';
+﻿'use client';
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 
-type MyApplication = {
+export type MyApplication = {
   id: number;
   created_at: string;
   status: string;
@@ -24,7 +24,8 @@ type MyApplication = {
 };
 
 type ApprovedShiftsCardProps = {
-  accessToken: string;
+  accessToken?: string;
+  initialApplications?: MyApplication[];
 };
 
 function formatDateRu(value: string) {
@@ -40,11 +41,20 @@ function formatTimeRange(from: string, to: string, overnight: boolean) {
   return overnight ? `${from}–${to} (+1 день)` : `${from}–${to}`;
 }
 
-export default function ApprovedShiftsCard({ accessToken }: ApprovedShiftsCardProps) {
-  const [items, setItems] = useState<MyApplication[]>([]);
-  const [loading, setLoading] = useState(true);
+export default function ApprovedShiftsCard({
+  accessToken = '',
+  initialApplications,
+}: ApprovedShiftsCardProps) {
+  const [items, setItems] = useState<MyApplication[]>(initialApplications || []);
+  const [loading, setLoading] = useState(!initialApplications);
 
   async function load() {
+    if (initialApplications) {
+      setItems(initialApplications);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -77,7 +87,7 @@ export default function ApprovedShiftsCard({ accessToken }: ApprovedShiftsCardPr
 
   useEffect(() => {
     void load();
-  }, [accessToken]);
+  }, [accessToken, initialApplications]);
 
   const approvedUpcoming = useMemo(() => {
     return items
@@ -95,7 +105,7 @@ export default function ApprovedShiftsCard({ accessToken }: ApprovedShiftsCardPr
       <div className="rounded-2xl border bg-white p-6 shadow-sm">
         <h3 className="mb-2 text-xl font-semibold">Тебя уже ждут</h3>
         <div className="rounded-xl bg-gray-50 p-4 text-sm text-gray-700">
-          Загружаю подтверждённые смены...
+          агружаю подтверждённые смены...
         </div>
       </div>
     );
@@ -111,7 +121,7 @@ export default function ApprovedShiftsCard({ accessToken }: ApprovedShiftsCardPr
         <div>
           <h3 className="mb-2 text-xl font-semibold">Тебя уже ждут</h3>
           <p className="text-sm text-gray-600">
-            Здесь показаны ближайшие подтверждённые смены. Прошедшие автоматически
+            десь показаны ближайшие подтверждённые смены. рошедшие автоматически
             исчезают из этого блока.
           </p>
         </div>
@@ -120,7 +130,7 @@ export default function ApprovedShiftsCard({ accessToken }: ApprovedShiftsCardPr
           href="/my-applications"
           className="rounded-lg border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
         >
-          Все мои отклики
+          се мои отклики
         </Link>
       </div>
 
@@ -129,7 +139,7 @@ export default function ApprovedShiftsCard({ accessToken }: ApprovedShiftsCardPr
           <div key={item.id} className="rounded-xl border p-4">
             <div className="mb-2 flex flex-wrap items-center gap-2">
               <span className="rounded-full bg-green-100 px-2 py-1 text-xs text-green-700">
-                Подтверждена
+                одтверждена
               </span>
               <span className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-700">
                 {formatDateRu(item.work_date)}
@@ -145,7 +155,7 @@ export default function ApprovedShiftsCard({ accessToken }: ApprovedShiftsCardPr
             </div>
 
             <div className="mt-2 text-sm text-gray-700">
-              <span className="text-gray-500">Должность:</span>{' '}
+              <span className="text-gray-500">олжность:</span>{' '}
               {item.position || '—'}
             </div>
           </div>

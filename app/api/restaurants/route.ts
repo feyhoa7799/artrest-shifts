@@ -1,34 +1,21 @@
-import { NextResponse } from 'next/server';
+﻿import { NextResponse } from 'next/server';
 
-import { supabaseAdmin } from '@/lib/supabase-admin';
+import { getActiveRestaurantOptions } from '@/lib/restaurants-cache';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    const { data, error } = await supabaseAdmin
-      .from('restaurants')
-      .select('id, name')
-      .eq('is_active', true)
-      .order('name', { ascending: true });
-
-    if (error) {
-      console.error('[api/restaurants] Supabase error:', error);
-
-      return NextResponse.json(
-        { error: 'Не удалось загрузить список ресторанов' },
-        { status: 500 }
-      );
-    }
+    const restaurants = await getActiveRestaurantOptions();
 
     return NextResponse.json({
-      restaurants: data || [],
+      restaurants,
     });
   } catch (error) {
     console.error('[api/restaurants] Unexpected error:', error);
 
     return NextResponse.json(
-      { error: 'Не удалось загрузить список ресторанов' },
+      { error: 'е удалось загрузить список ресторанов' },
       { status: 500 }
     );
   }

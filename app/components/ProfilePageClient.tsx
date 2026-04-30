@@ -3,7 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import ChangePasswordForm from '@/app/components/ChangePasswordForm';
-import TelegramLinkCard from '@/app/components/TelegramLinkCard';
+import TelegramLinkCard, {
+  type TelegramStatus,
+} from '@/app/components/TelegramLinkCard';
 import { supabase } from '@/lib/supabase';
 
 const ROLES = [
@@ -30,6 +32,13 @@ type Profile = {
   role: string;
   home_restaurant_id: number | '';
   is_blocked: boolean;
+};
+
+type ProfileBootstrapResponse = {
+  profile?: Profile;
+  restaurants?: Restaurant[];
+  telegram?: TelegramStatus | null;
+  error?: string;
 };
 
 const emptyProfile: Profile = {
@@ -134,8 +143,11 @@ export default function ProfilePageClient() {
   const [accessToken, setAccessToken] = useState('');
   const [email, setEmail] = useState('');
   const [profile, setProfile] = useState<Profile>(emptyProfile);
-  const [savedProfileKey, setSavedProfileKey] = useState(profileFingerprint(emptyProfile));
+  const [savedProfileKey, setSavedProfileKey] = useState(
+    profileFingerprint(emptyProfile)
+  );
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
+  const [telegramStatus, setTelegramStatus] = useState<TelegramStatus | null>(null);
 
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
@@ -175,66 +187,38 @@ export default function ProfilePageClient() {
     return session?.access_token || null;
   }
 
-  async function loadRestaurants() {
-    const res = await fetch('/api/restaurants', {
-      cache: 'no-store',
-    });
-
-    const data = await readJsonSafe(res);
-
-    if (!res.ok || !Array.isArray(data?.restaurants)) {
-      setRestaurants([]);
-      return;
-    }
-
-    setRestaurants(data.restaurants as Restaurant[]);
-  }
-
-  async function loadProfile(token: string) {
-    const res = await fetch('/api/profile', {
+  async function loadBootstrap(token: string) {
+    const res = await fetch('/api/profile/bootstrap', {
       headers: {
         Authorization: `Bearer ${token}`,
       },
       cache: 'no-store',
     });
 
-    const data = await readJsonSafe(res);
+    const data = (await readJsonSafe(res)) as ProfileBootstrapResponse | null;
 
-    if (!res.ok) {
+    if (!res.ok || !data) {
       showError(data?.error || 'Не удалось загрузить профиль');
       return;
     }
 
-    if (data?.profile) {
-      const loadedProfile: Profile = {
-        user_id: data.profile.user_id || '',
-        email: data.profile.email || '',
-        full_name: data.profile.full_name || '',
-        phone: data.profile.phone || '+7',
-        role: data.profile.role || '',
-        home_restaurant_id: data.profile.home_restaurant_id || '',
-        is_blocked: Boolean(data.profile.is_blocked),
-      };
+    const loadedProfile: Profile = data.profile
+      ? {
+          user_id: data.profile.user_id || '',
+          email: data.profile.email || '',
+          full_name: data.profile.full_name || '',
+          phone: data.profile.phone || '+7',
+          role: data.profile.role || '',
+          home_restaurant_id: data.profile.home_restaurant_id || '',
+          is_blocked: Boolean(data.profile.is_blocked),
+        }
+      : emptyProfile;
 
-      setProfile(loadedProfile);
-      setSavedProfileKey(profileFingerprint(loadedProfile));
-      setEmail(loadedProfile.email);
-      return;
-    }
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    const fallback: Profile = {
-      ...emptyProfile,
-      user_id: user?.id || '',
-      email: user?.email || '',
-    };
-
-    setProfile(fallback);
-    setSavedProfileKey(profileFingerprint(fallback));
-    setEmail(user?.email || '');
+    setProfile(loadedProfile);
+    setSavedProfileKey(profileFingerprint(loadedProfile));
+    setEmail(loadedProfile.email);
+    setRestaurants(Array.isArray(data.restaurants) ? data.restaurants : []);
+    setTelegramStatus(data.telegram || null);
   }
 
   async function hydrate() {
@@ -252,7 +236,7 @@ export default function ProfilePageClient() {
 
       setAccessToken(token);
 
-      await Promise.all([loadRestaurants(), loadProfile(token)]);
+      await loadBootstrap(token);
     } catch {
       showError('Ошибка загрузки профиля');
     } finally {
@@ -335,6 +319,7 @@ export default function ProfilePageClient() {
 
       setProfile(savedProfile);
       setSavedProfileKey(profileFingerprint(savedProfile));
+      setEmail(savedProfile.email);
       showNotice('Профиль сохранён.');
     } catch {
       showError('Ошибка сохранения профиля');
@@ -551,7 +536,12 @@ export default function ProfilePageClient() {
         </div>
       </section>
 
-      {accessToken && <TelegramLinkCard accessToken={accessToken} />}
+      {accessToken && (
+        <TelegramLinkCard
+          accessToken={accessToken}
+          initialStatus={telegramStatus}
+        />
+      )}
 
       <ChangePasswordForm email={email || profile.email} />
 

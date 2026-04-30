@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { User } from '@supabase/supabase-js';
@@ -6,7 +6,9 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Turnstile from 'react-turnstile';
 
-import ApprovedShiftsCard from '@/app/components/ApprovedShiftsCard';
+import ApprovedShiftsCard, {
+  type MyApplication,
+} from '@/app/components/ApprovedShiftsCard';
 import { validatePasswordStrength } from '@/lib/password';
 import { supabase } from '@/lib/supabase';
 
@@ -31,6 +33,29 @@ type HydrateOptions = {
   force?: boolean;
 };
 
+type HomeBootstrapResponse = {
+  user?: {
+    id: string;
+    email: string;
+  };
+  profile?: {
+    exists: boolean;
+    isComplete: boolean;
+    isBlocked: boolean;
+    firstName: string;
+    full_name: string;
+    phone: string;
+    role: string;
+    home_restaurant_id: number | null;
+  };
+  admin?: {
+    isAdmin: boolean;
+    isSuperadmin: boolean;
+  };
+  upcomingApprovedApplications?: MyApplication[];
+  error?: string;
+};
+
 const emptyProfile: Profile = {
   user_id: '',
   email: '',
@@ -43,7 +68,7 @@ const emptyProfile: Profile = {
 
 function normalizeFullName(value: string) {
   return String(value || '')
-    .replace(/[^А-Яа-яЁё\s-]/g, '')
+    .replace(/[^-Яа-яё\s-]/g, '')
     .replace(/\s+/g, ' ')
     .replace(/-+/g, '-')
     .trim();
@@ -55,7 +80,7 @@ function isValidCyrillicFullName(value: string) {
   if (!normalized) return false;
   if (normalized.length < 5) return false;
 
-  if (!/^[А-Яа-яЁё]+(?:[\s-][А-Яа-яЁё]+)*$/.test(normalized)) {
+  if (!/^[-Яа-яё]+(?:[\s-][-Яа-яё]+)*$/.test(normalized)) {
     return false;
   }
 
@@ -122,7 +147,9 @@ export default function HomeAuthGate() {
   const [mode, setMode] = useState<'login' | 'register'>(
     searchParams.get('auth') === 'register' ? 'register' : 'login'
   );
-  const [registerStep, setRegisterStep] = useState<'email' | 'code' | 'password'>('email');
+  const [registerStep, setRegisterStep] = useState<'email' | 'code' | 'password'>(
+    'email'
+  );
 
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -138,6 +165,8 @@ export default function HomeAuthGate() {
     isAdmin: false,
     isSuperadmin: false,
   });
+  const [upcomingApprovedApplications, setUpcomingApprovedApplications] =
+    useState<MyApplication[]>([]);
 
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
@@ -191,82 +220,50 @@ export default function HomeAuthGate() {
     return session?.access_token || null;
   }
 
-  async function syncSessionFlags(accessToken?: string | null) {
-    const token = accessToken ?? (await getAccessToken());
-
-    if (!token) return null;
-
-    const res = await fetch('/api/session-flags/sync', {
-      method: 'POST',
+  async function loadHomeBootstrap(accessToken: string, currentUser: User) {
+    const res = await fetch('/api/home/bootstrap', {
       headers: {
-        Authorization: `Bearer ${token}`,
+        Authorization: `Bearer ${accessToken}`,
       },
+      cache: 'no-store',
     });
 
-    return await readJsonSafe(res);
-  }
+    const data = (await readJsonSafe(res)) as HomeBootstrapResponse | null;
 
-  async function loadProfile(accessToken: string, currentUser: User | null) {
-    try {
-      const res = await fetch('/api/profile', {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-        cache: 'no-store',
-      });
-
-      const data = await readJsonSafe(res);
-
-      if (!res.ok || !data?.profile) {
-        setProfile({
-          ...emptyProfile,
-          user_id: currentUser?.id || '',
-          email: currentUser?.email || '',
-        });
-        return;
-      }
-
-      setProfile({
-        user_id: data.profile.user_id || '',
-        email: data.profile.email || currentUser?.email || '',
-        full_name: data.profile.full_name || '',
-        phone: data.profile.phone || '+7',
-        role: data.profile.role || '',
-        home_restaurant_id: data.profile.home_restaurant_id || '',
-        is_blocked: Boolean(data.profile.is_blocked),
-      });
-    } catch {
+    if (!res.ok || !data) {
       setProfile({
         ...emptyProfile,
-        user_id: currentUser?.id || '',
-        email: currentUser?.email || '',
+        user_id: currentUser.id,
+        email: currentUser.email || '',
       });
-    }
-  }
+      setAdminState({ isAdmin: false, isSuperadmin: false });
+      setUpcomingApprovedApplications([]);
 
-  async function loadAdminAccess(accessToken: string) {
-    try {
-      const res = await fetch('/api/admin/me', {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-        cache: 'no-store',
-      });
-
-      const data = await readJsonSafe(res);
-
-      if (!res.ok || !data) {
-        setAdminState({ isAdmin: false, isSuperadmin: false });
-        return;
+      if (res.status !== 401) {
+        showError(data?.error || 'шибка загрузки данных главной');
       }
 
-      setAdminState({
-        isAdmin: Boolean(data.isAdmin),
-        isSuperadmin: Boolean(data.isSuperadmin),
-      });
-    } catch {
-      setAdminState({ isAdmin: false, isSuperadmin: false });
+      return;
     }
+
+    const profileData = data.profile;
+
+    setProfile({
+      user_id: data.user?.id || currentUser.id,
+      email: data.user?.email || currentUser.email || '',
+      full_name: profileData?.full_name || '',
+      phone: profileData?.phone || '+7',
+      role: profileData?.role || '',
+      home_restaurant_id: profileData?.home_restaurant_id || '',
+      is_blocked: Boolean(profileData?.isBlocked),
+    });
+
+    setAdminState({
+      isAdmin: Boolean(data.admin?.isAdmin),
+      isSuperadmin: Boolean(data.admin?.isSuperadmin),
+    });
+
+    setUpcomingApprovedApplications(data.upcomingApprovedApplications || []);
   }
 
   async function hydrate(options: HydrateOptions = {}) {
@@ -299,6 +296,7 @@ export default function HomeAuthGate() {
         setNeedsPasswordSetup(false);
         setProfile(emptyProfile);
         setAdminState({ isAdmin: false, isSuperadmin: false });
+        setUpcomingApprovedApplications([]);
         setLoading(false);
         return;
       }
@@ -328,10 +326,10 @@ export default function HomeAuthGate() {
       setSessionAccessToken(accessToken);
       setNeedsPasswordSetup(false);
 
-      await syncSessionFlags(accessToken);
-      await Promise.all([loadProfile(accessToken, user), loadAdminAccess(accessToken)]);
+      await loadHomeBootstrap(accessToken, user);
 
       if (!mountedRef.current) return;
+
       setLoading(false);
     } catch {
       if (!mountedRef.current) return;
@@ -351,7 +349,7 @@ export default function HomeAuthGate() {
     }
 
     if (searchParams.get('reset') === '1') {
-      showNotice('Пароль обновлён. Теперь войдите по email и паролю.');
+      showNotice('ароль обновлён. Теперь войдите по email и паролю.');
     }
 
     if (completeProfileRequired) {
@@ -377,17 +375,17 @@ export default function HomeAuthGate() {
     showError('');
 
     if (!consentChecked) {
-      showError('Подтвердите согласие на обработку персональных данных');
+      showError('одтвердите согласие на обработку персональных данных');
       return;
     }
 
     if (!registerEmail.trim()) {
-      showError('Введите email');
+      showError('ведите email');
       return;
     }
 
     if (!captchaToken) {
-      showError('Подтвердите, что вы не робот');
+      showError('одтвердите, что вы не робот');
       return;
     }
 
@@ -409,7 +407,7 @@ export default function HomeAuthGate() {
       }
 
       setRegisterStep('code');
-      showNotice('Код отправлен на почту.');
+      showNotice('од отправлен на почту.');
       resetCaptcha();
     } finally {
       setSendingCode(false);
@@ -420,7 +418,7 @@ export default function HomeAuthGate() {
     showError('');
 
     if (!registerEmail.trim() || !registerCode.trim()) {
-      showError('Введите email и код');
+      showError('ведите email и код');
       return;
     }
 
@@ -447,7 +445,7 @@ export default function HomeAuthGate() {
 
       setNeedsPasswordSetup(true);
       setRegisterStep('password');
-      showNotice('Почта подтверждена. Теперь задайте пароль.');
+      showNotice('очта подтверждена. Теперь задайте пароль.');
       await hydrate({ force: true });
     } finally {
       setVerifyingCode(false);
@@ -472,12 +470,12 @@ export default function HomeAuthGate() {
     showError('');
 
     if (registerPassword !== registerPasswordRepeat) {
-      showError('Пароли не совпадают');
+      showError('ароли не совпадают');
       return;
     }
 
     if (!passwordCheck.valid) {
-      showError(passwordCheck.errors[0] || 'Пароль слишком простой');
+      showError(passwordCheck.errors[0] || 'ароль слишком простой');
       return;
     }
 
@@ -498,7 +496,6 @@ export default function HomeAuthGate() {
       if (accessToken) {
         setSessionAccessToken(accessToken);
         await savePrivacyConsent(accessToken);
-        await syncSessionFlags(accessToken);
       }
 
       if (typeof window !== 'undefined') {
@@ -508,7 +505,7 @@ export default function HomeAuthGate() {
       setNeedsPasswordSetup(false);
       setRegisterPassword('');
       setRegisterPasswordRepeat('');
-      showNotice('Пароль сохранён. Осталось заполнить профиль.');
+      showNotice('ароль сохранён. сталось заполнить профиль.');
       await hydrate({ force: true });
     } finally {
       setSettingPassword(false);
@@ -519,12 +516,12 @@ export default function HomeAuthGate() {
     showError('');
 
     if (!loginEmail.trim() || !loginPassword.trim()) {
-      showError('Введите email и пароль');
+      showError('ведите email и пароль');
       return;
     }
 
     if (!captchaToken) {
-      showError('Подтвердите, что вы не робот');
+      showError('одтвердите, что вы не робот');
       return;
     }
 
@@ -545,7 +542,7 @@ export default function HomeAuthGate() {
         return;
       }
 
-      showNotice('Вход выполнен.');
+      showNotice('ход выполнен.');
       resetCaptcha();
       await hydrate({ force: true });
       router.refresh();
@@ -563,7 +560,7 @@ export default function HomeAuthGate() {
     }
 
     if (!captchaToken) {
-      showError('Подтвердите, что вы не робот');
+      showError('одтвердите, что вы не робот');
       return;
     }
 
@@ -586,7 +583,7 @@ export default function HomeAuthGate() {
         return;
       }
 
-      showNotice('Письмо для восстановления пароля отправлено.');
+      showNotice('исьмо для восстановления пароля отправлено.');
       resetCaptcha();
     } finally {
       setSendingReset(false);
@@ -596,7 +593,7 @@ export default function HomeAuthGate() {
   if (loading) {
     return (
       <div className="rounded-2xl border bg-white p-6 shadow-sm">
-        Загрузка...
+        агрузка...
       </div>
     );
   }
@@ -604,9 +601,9 @@ export default function HomeAuthGate() {
   if (needsPasswordSetup) {
     return (
       <div className="rounded-2xl border bg-white p-6 shadow-sm">
-        <h2 className="mb-2 text-2xl font-semibold">Задайте пароль</h2>
+        <h2 className="mb-2 text-2xl font-semibold">адайте пароль</h2>
         <p className="mb-5 text-sm text-gray-600">
-          Почта подтверждена. Теперь придумайте пароль для постоянного входа.
+          очта подтверждена. Теперь придумайте пароль для постоянного входа.
         </p>
 
         {notice && (
@@ -635,7 +632,7 @@ export default function HomeAuthGate() {
 
           <div>
             <label className="mb-1 block text-sm font-medium text-gray-700">
-              Новый пароль
+              овый пароль
             </label>
             <input
               type="password"
@@ -647,7 +644,7 @@ export default function HomeAuthGate() {
 
           <div>
             <label className="mb-1 block text-sm font-medium text-gray-700">
-              Повторите пароль
+              овторите пароль
             </label>
             <input
               type="password"
@@ -698,7 +695,7 @@ export default function HomeAuthGate() {
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             }`}
           >
-            Войти
+            ойти
           </button>
 
           <button
@@ -715,7 +712,7 @@ export default function HomeAuthGate() {
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             }`}
           >
-            Зарегистрироваться
+            арегистрироваться
           </button>
         </div>
 
@@ -733,9 +730,9 @@ export default function HomeAuthGate() {
 
         {mode === 'login' ? (
           <>
-            <h2 className="mb-2 text-2xl font-semibold">Вход в аккаунт</h2>
+            <h2 className="mb-2 text-2xl font-semibold">ход в аккаунт</h2>
             <p className="mb-5 text-sm text-gray-600">
-              Войдите по email и паролю, чтобы увидеть доступные смены и свои отклики.
+              ойдите по email и паролю, чтобы увидеть доступные смены и свои отклики.
             </p>
 
             <div className="space-y-4">
@@ -753,7 +750,7 @@ export default function HomeAuthGate() {
 
               <div>
                 <label className="mb-1 block text-sm font-medium text-gray-700">
-                  Пароль
+                  ароль
                 </label>
                 <input
                   type="password"
@@ -776,7 +773,7 @@ export default function HomeAuthGate() {
                   }}
                   onError={() => {
                     setCaptchaToken(null);
-                    showError('Ошибка проверки CAPTCHA. Попробуйте ещё раз.');
+                    showError('шибка проверки CAPTCHA. опробуйте ещё раз.');
                   }}
                 />
               </div>
@@ -788,7 +785,7 @@ export default function HomeAuthGate() {
                   disabled={loggingIn || !captchaToken}
                   className="rounded-lg bg-red-500 px-4 py-3 text-white hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {loggingIn ? 'Вхожу...' : 'Войти'}
+                  {loggingIn ? 'хожу...' : 'ойти'}
                 </button>
 
                 <button
@@ -797,16 +794,16 @@ export default function HomeAuthGate() {
                   disabled={sendingReset || !captchaToken}
                   className="rounded-lg border px-4 py-3 text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {sendingReset ? 'Отправляю...' : 'Забыли пароль?'}
+                  {sendingReset ? 'тправляю...' : 'абыли пароль?'}
                 </button>
               </div>
             </div>
           </>
         ) : (
           <>
-            <h2 className="mb-2 text-2xl font-semibold">Регистрация</h2>
+            <h2 className="mb-2 text-2xl font-semibold">егистрация</h2>
             <p className="mb-5 text-sm text-gray-600">
-              Подтвердите email, придумайте пароль и заполните профиль сотрудника.
+              одтвердите email, придумайте пароль и заполните профиль сотрудника.
             </p>
 
             {registerStep === 'email' && (
@@ -854,7 +851,7 @@ export default function HomeAuthGate() {
                     }}
                     onError={() => {
                       setCaptchaToken(null);
-                      showError('Ошибка проверки CAPTCHA. Попробуйте ещё раз.');
+                      showError('шибка проверки CAPTCHA. опробуйте ещё раз.');
                     }}
                   />
                 </div>
@@ -865,7 +862,7 @@ export default function HomeAuthGate() {
                   disabled={sendingCode || !consentChecked || !captchaToken}
                   className="rounded-lg bg-red-500 px-4 py-3 text-white hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {sendingCode ? 'Отправляю код...' : 'Получить код на почту'}
+                  {sendingCode ? 'тправляю код...' : 'олучить код на почту'}
                 </button>
               </div>
             )}
@@ -873,12 +870,12 @@ export default function HomeAuthGate() {
             {registerStep === 'code' && (
               <div className="space-y-4">
                 <div className="rounded-xl bg-gray-50 p-4 text-sm text-gray-700">
-                  Код отправлен на {registerEmail}
+                  од отправлен на {registerEmail}
                 </div>
 
                 <div>
                   <label className="mb-1 block text-sm font-medium text-gray-700">
-                    Код из письма
+                    од из письма
                   </label>
                   <input
                     value={registerCode}
@@ -894,7 +891,7 @@ export default function HomeAuthGate() {
                     disabled={verifyingCode}
                     className="rounded-lg bg-red-500 px-4 py-3 text-white hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {verifyingCode ? 'Проверяю...' : 'Подтвердить email'}
+                    {verifyingCode ? 'роверяю...' : 'одтвердить email'}
                   </button>
 
                   <button
@@ -906,7 +903,7 @@ export default function HomeAuthGate() {
                     }}
                     className="rounded-lg border px-4 py-3 text-gray-700 hover:bg-gray-50"
                   >
-                    Назад
+                    азад
                   </button>
                 </div>
               </div>
@@ -922,13 +919,13 @@ export default function HomeAuthGate() {
       <div className="space-y-6">
         <section className="rounded-2xl border bg-white p-6 shadow-sm">
           <div className="mb-2 text-sm font-medium text-red-600">
-            Остался последний шаг
+            стался последний шаг
           </div>
 
-          <h2 className="mb-2 text-2xl font-semibold">Заполните профиль</h2>
+          <h2 className="mb-2 text-2xl font-semibold">аполните профиль</h2>
 
           <p className="mb-5 text-sm text-gray-600">
-            Чтобы смотреть смены и отправлять отклики, нужно указать ФИО, телефон,
+            тобы смотреть смены и отправлять отклики, нужно указать , телефон,
             должность и домашний ресторан.
           </p>
 
@@ -949,7 +946,7 @@ export default function HomeAuthGate() {
             onClick={() => goTo('/profile?completeProfile=1')}
             className="rounded-lg bg-red-500 px-4 py-3 text-white hover:bg-red-600"
           >
-            Заполнить профиль
+            аполнить профиль
           </button>
         </section>
       </div>
@@ -960,19 +957,19 @@ export default function HomeAuthGate() {
     <div className="space-y-6">
       <section className="rounded-2xl border bg-white p-6 shadow-sm">
         <div className="mb-2 text-sm font-medium text-red-600">
-          Личный кабинет
+          ичный кабинет
         </div>
 
-        <h2 className="mb-2 text-2xl font-semibold">Привет, {firstName}</h2>
+        <h2 className="mb-2 text-2xl font-semibold">ривет, {firstName}</h2>
 
         <p className="mb-5 text-sm text-gray-600">
-          Здесь коротко показано главное. Данные профиля, пароль, Telegram и выход
-          теперь находятся во вкладке «Профиль».
+          десь коротко показано главное. анные профиля, пароль, Telegram и выход
+          теперь находятся во вкладке «рофиль».
         </p>
 
         {profile.is_blocked ? (
           <div className="rounded-xl bg-red-50 p-4 text-sm text-red-700">
-            Ваш профиль заблокирован. Доступ к откликам на смены ограничен.
+            аш профиль заблокирован. оступ к откликам на смены ограничен.
           </div>
         ) : (
           <div className="flex flex-wrap gap-2">
@@ -989,7 +986,7 @@ export default function HomeAuthGate() {
               onClick={() => goTo('/my-applications')}
               className="rounded-lg border px-4 py-3 text-gray-700 hover:bg-gray-50"
             >
-              Мои отклики
+              ои отклики
             </button>
 
             <button
@@ -997,7 +994,7 @@ export default function HomeAuthGate() {
               onClick={() => goTo('/profile')}
               className="rounded-lg border px-4 py-3 text-gray-700 hover:bg-gray-50"
             >
-              Профиль
+              рофиль
             </button>
 
             {adminState.isAdmin && (
@@ -1006,15 +1003,15 @@ export default function HomeAuthGate() {
                 onClick={() => goTo('/admin')}
                 className="rounded-lg border px-4 py-3 text-gray-700 hover:bg-gray-50"
               >
-                Админ-панель
+                дмин-панель
               </button>
             )}
           </div>
         )}
       </section>
 
-      {!profile.is_blocked && sessionAccessToken && (
-        <ApprovedShiftsCard accessToken={sessionAccessToken} />
+      {!profile.is_blocked && (
+        <ApprovedShiftsCard initialApplications={upcomingApprovedApplications} />
       )}
     </div>
   );

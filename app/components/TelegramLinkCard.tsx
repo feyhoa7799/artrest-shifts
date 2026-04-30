@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
-type TelegramStatus = {
+export type TelegramStatus = {
   isLinked: boolean;
   botUsername: string | null;
   botUrl: string | null;
@@ -21,6 +21,7 @@ type LinkResponse = {
 
 type TelegramLinkCardProps = {
   accessToken: string;
+  initialStatus?: TelegramStatus | null;
 };
 
 function formatDateTime(value: string | null) {
@@ -38,10 +39,13 @@ function formatDateTime(value: string | null) {
   }).format(date);
 }
 
-export default function TelegramLinkCard({ accessToken }: TelegramLinkCardProps) {
-  const [loading, setLoading] = useState(true);
+export default function TelegramLinkCard({
+  accessToken,
+  initialStatus,
+}: TelegramLinkCardProps) {
+  const [loading, setLoading] = useState(initialStatus === undefined);
   const [saving, setSaving] = useState(false);
-  const [status, setStatus] = useState<TelegramStatus | null>(null);
+  const [status, setStatus] = useState<TelegramStatus | null>(initialStatus || null);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
 
@@ -78,8 +82,14 @@ export default function TelegramLinkCard({ accessToken }: TelegramLinkCardProps)
   }
 
   useEffect(() => {
+    if (initialStatus !== undefined) {
+      setStatus(initialStatus || null);
+      setLoading(false);
+      return;
+    }
+
     void load();
-  }, [accessToken]);
+  }, [accessToken, initialStatus]);
 
   async function handleCreateLink() {
     setSaving(true);
