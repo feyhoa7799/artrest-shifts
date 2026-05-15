@@ -1,5 +1,4 @@
 import ApplyButton from '@/app/components/ApplyButton';
-import ContactCard from '@/app/components/ContactCard';
 import { getShiftMeta } from '@/lib/shift';
 import { supabase } from '@/lib/supabase';
 
@@ -231,8 +230,6 @@ export default async function RestaurantPage({ params }: PageProps) {
           </div>
         )}
       </section>
-
-      <ContactCard />
     </main>
   );
 }
