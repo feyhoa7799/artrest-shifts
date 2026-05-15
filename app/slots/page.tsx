@@ -1,6 +1,5 @@
 import Link from 'next/link';
 
-import ContactCard from '@/app/components/ContactCard';
 import SlotsExplorer from '@/app/components/SlotsExplorer';
 import { supabase } from '@/lib/supabase';
 
@@ -260,8 +259,6 @@ export default async function SlotsPage(props: { searchParams: SearchParams }) {
           initialFocusRestaurantId={focusRestaurantId}
         />
       )}
-
-      <ContactCard />
     </main>
   );
 }
