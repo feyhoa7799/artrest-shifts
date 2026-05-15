@@ -1,7 +1,6 @@
 import { Suspense } from 'react';
 
 import HomeAuthGate from '@/app/components/HomeAuthGate';
-import ContactCard from '@/app/components/ContactCard';
 
 function AuthGateFallback() {
   return (
@@ -58,8 +57,6 @@ export default function Home() {
       <Suspense fallback={<AuthGateFallback />}>
         <HomeAuthGate />
       </Suspense>
-
-      <ContactCard />
     </main>
   );
 }
