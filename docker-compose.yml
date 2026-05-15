@@ -18,7 +18,7 @@ services:
       ADMIN_USERNAME: ${ADMIN_USERNAME}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
     ports:
-      - "8080:443"
+      - "127.0.0.1:8080:443"
 
   telegram-bot:
     build:
