@@ -50,6 +50,25 @@ assert.equal(
   'future approved shift should be active'
 );
 
+const closedFutureApproved = status({
+  applicationStatus: 'approved',
+  slotStatus: 'closed',
+  workDate: '2026-06-18',
+  timeFrom: '10:00',
+  timeTo: '18:00',
+});
+
+assert.equal(
+  closedFutureApproved.derivedStatus,
+  'finished',
+  'closed future approved shift should be finished'
+);
+assert.equal(
+  closedFutureApproved.isActiveApproved,
+  false,
+  'closed future approved shift should not be active'
+);
+
 const overnight = getShiftDateTimeRangeMoscow({
   workDate: '2026-06-18',
   timeFrom: '22:00',
