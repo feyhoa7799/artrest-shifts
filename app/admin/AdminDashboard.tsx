@@ -46,6 +46,9 @@ type Restaurant = {
   address: string;
   city: string;
   metro: string | null;
+  is_active: boolean | null;
+  archived_at: string | null;
+  archive_reason: string | null;
 };
 
 type Slot = {
@@ -378,6 +381,10 @@ export default function AdminDashboard({
   const [restaurantForm, setRestaurantForm] =
     useState<RestaurantFormState>(emptyRestaurantForm);
   const [applicationReasons, setApplicationReasons] = useState<Record<number, string>>({});
+  const [restaurantArchiveView, setRestaurantArchiveView] =
+    useState<'active' | 'archived'>('active');
+  const [archiveTarget, setArchiveTarget] = useState<Restaurant | null>(null);
+  const [archiveReason, setArchiveReason] = useState('');
 
   async function load() {
     setLoading(true);
@@ -385,13 +392,16 @@ export default function AdminDashboard({
 
     try {
       const nextData = await fetchAdminJson<BootstrapResponse>('/api/admin/bootstrap');
+      const nextActiveRestaurants = nextData.restaurants.filter(
+        (restaurant) => restaurant.is_active !== false
+      );
 
       setData(nextData);
 
-      if (nextData.restaurants.length === 1) {
+      if (nextActiveRestaurants.length === 1) {
         setSlotForm((current) => ({
           ...current,
-          restaurant_id: current.restaurant_id || String(nextData.restaurants[0].id),
+          restaurant_id: current.restaurant_id || String(nextActiveRestaurants[0].id),
         }));
       }
     } catch (err) {
@@ -421,6 +431,16 @@ export default function AdminDashboard({
   }, [data, initialSearchParams.edit]);
 
   const restaurants = data?.restaurants ?? EMPTY_RESTAURANTS;
+  const activeRestaurants = useMemo(
+    () => restaurants.filter((restaurant) => restaurant.is_active !== false),
+    [restaurants]
+  );
+  const archivedRestaurants = useMemo(
+    () => restaurants.filter((restaurant) => restaurant.is_active === false),
+    [restaurants]
+  );
+  const visibleRestaurants =
+    restaurantArchiveView === 'archived' ? archivedRestaurants : activeRestaurants;
   const slots = data?.slots ?? EMPTY_SLOTS;
   const applications = data?.applications ?? EMPTY_APPLICATIONS;
   const employees = data?.employees ?? EMPTY_EMPLOYEES;
@@ -510,7 +530,7 @@ export default function AdminDashboard({
     );
   });
 
-  const activeRestaurantsCount = restaurants.length;
+  const activeRestaurantsCount = activeRestaurants.length;
   const totalPendingApplications = applications.filter(
     (application) => !application.status || application.status === 'pending'
   ).length;
@@ -524,7 +544,7 @@ export default function AdminDashboard({
     { id: 'unrealized' as const, label: 'Прошедшие', count: unrealizedSlots.length },
     ...(admin?.isGlobalAdmin
       ? [
-          { id: 'restaurants' as const, label: 'Рестораны', count: restaurants.length },
+          { id: 'restaurants' as const, label: 'Рестораны', count: activeRestaurants.length },
           { id: 'employees' as const, label: 'Сотрудники', count: employees.length },
         ]
       : []),
@@ -569,7 +589,8 @@ export default function AdminDashboard({
     if (success && !slotForm.slot_id) {
       setSlotForm({
         ...emptySlotForm,
-        restaurant_id: restaurants.length === 1 ? String(restaurants[0].id) : '',
+        restaurant_id:
+          activeRestaurants.length === 1 ? String(activeRestaurants[0].id) : '',
       });
     }
   }
@@ -581,6 +602,33 @@ export default function AdminDashboard({
 
     if (success) {
       setRestaurantForm(emptyRestaurantForm);
+    }
+  }
+
+  async function handleArchiveRestaurant(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!archiveTarget) return;
+
+    const success = await runAdminAction('archiveRestaurant', {
+      restaurant_id: archiveTarget.id,
+      archive_reason: archiveReason,
+    });
+
+    if (success) {
+      setArchiveTarget(null);
+      setArchiveReason('');
+      setRestaurantArchiveView('archived');
+    }
+  }
+
+  async function handleRestoreRestaurant(restaurant: Restaurant) {
+    const success = await runAdminAction('restoreRestaurant', {
+      restaurant_id: restaurant.id,
+    });
+
+    if (success) {
+      setRestaurantArchiveView('active');
     }
   }
 
@@ -713,6 +761,7 @@ export default function AdminDashboard({
                 {restaurants.map((restaurant) => (
                   <option key={restaurant.id} value={restaurant.id}>
                     {restaurant.name}
+                    {restaurant.is_active === false ? ' (архив)' : ''}
                   </option>
                 ))}
               </select>
@@ -828,9 +877,9 @@ export default function AdminDashboard({
             >
               <div className="grid gap-4 md:grid-cols-2">
                 <Field label="Ресторан">
-                  {restaurants.length === 1 ? (
+                  {activeRestaurants.length === 1 ? (
                     <div className="rounded-lg border bg-gray-50 p-3 text-gray-700">
-                      {restaurants[0].name}
+                      {activeRestaurants[0].name}
                     </div>
                   ) : (
                     <select
@@ -845,7 +894,7 @@ export default function AdminDashboard({
                       className="w-full rounded-lg border p-3"
                     >
                       <option value="">Выберите ресторан</option>
-                      {restaurants.map((restaurant) => (
+                      {activeRestaurants.map((restaurant) => (
                         <option key={restaurant.id} value={restaurant.id}>
                           {restaurant.name}
                         </option>
@@ -988,7 +1037,7 @@ export default function AdminDashboard({
               <div className="mt-5 flex flex-wrap gap-3">
                 <button
                   type="submit"
-                  disabled={saving || restaurants.length === 0}
+                  disabled={saving || activeRestaurants.length === 0}
                   className="rounded-lg bg-red-500 px-5 py-3 text-white hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {saving ? 'Сохраняю...' : slotForm.slot_id ? 'Сохранить слот' : 'Создать слот'}
@@ -1001,7 +1050,7 @@ export default function AdminDashboard({
                       setSlotForm({
                         ...emptySlotForm,
                         restaurant_id:
-                          restaurants.length === 1 ? String(restaurants[0].id) : '',
+                          activeRestaurants.length === 1 ? String(activeRestaurants[0].id) : '',
                       })
                     }
                     className="rounded-lg border px-5 py-3 text-gray-700 hover:bg-gray-50"
@@ -1162,19 +1211,142 @@ export default function AdminDashboard({
               </button>
             </form>
 
-            <div className="grid gap-3 md:grid-cols-2">
-              {restaurants.map((restaurant) => (
-                <div key={restaurant.id} className="rounded-xl border bg-white p-4">
-                  <div className="font-semibold text-gray-900">{restaurant.name}</div>
-                  <div className="mt-1 text-sm text-gray-600">
-                    {[restaurant.city, restaurant.address].filter(Boolean).join(' · ')}
-                  </div>
-                  {restaurant.metro && (
-                    <div className="mt-2 text-sm text-gray-500">Метро: {restaurant.metro}</div>
-                  )}
-                </div>
-              ))}
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setRestaurantArchiveView('active')}
+                className={`rounded-full px-4 py-2 text-sm ${
+                  restaurantArchiveView === 'active'
+                    ? 'bg-red-500 text-white'
+                    : 'bg-white text-gray-700 shadow-sm ring-1 ring-gray-200 hover:bg-gray-50'
+                }`}
+              >
+                Активные · {activeRestaurants.length}
+              </button>
+              <button
+                type="button"
+                onClick={() => setRestaurantArchiveView('archived')}
+                className={`rounded-full px-4 py-2 text-sm ${
+                  restaurantArchiveView === 'archived'
+                    ? 'bg-red-500 text-white'
+                    : 'bg-white text-gray-700 shadow-sm ring-1 ring-gray-200 hover:bg-gray-50'
+                }`}
+              >
+                Архивные · {archivedRestaurants.length}
+              </button>
             </div>
+
+            {archiveTarget && (
+              <form
+                onSubmit={handleArchiveRestaurant}
+                className="rounded-2xl border border-amber-200 bg-amber-50 p-5 shadow-sm"
+              >
+                <div className="font-semibold text-amber-950">
+                  Архивировать ресторан «{archiveTarget.name}»
+                </div>
+                <p className="mt-2 text-sm text-amber-900">
+                  История слотов, откликов и отчетов сохранится. Новые слоты для этого ресторана
+                  создать будет нельзя. Если есть активные будущие слоты, система не даст выполнить
+                  архивирование.
+                </p>
+                <Field label="Причина архивирования">
+                  <textarea
+                    value={archiveReason}
+                    onChange={(event) => setArchiveReason(event.target.value)}
+                    required
+                    rows={3}
+                    className="w-full rounded-lg border p-3"
+                  />
+                </Field>
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <button
+                    type="submit"
+                    disabled={saving}
+                    className="rounded-lg bg-red-500 px-5 py-3 text-white hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Архивировать ресторан
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setArchiveTarget(null);
+                      setArchiveReason('');
+                    }}
+                    className="rounded-lg border bg-white px-5 py-3 text-gray-700 hover:bg-gray-50"
+                  >
+                    Отмена
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {visibleRestaurants.length === 0 ? (
+              <EmptyState>
+                {restaurantArchiveView === 'archived'
+                  ? 'Архивных ресторанов нет.'
+                  : 'Активных ресторанов нет.'}
+              </EmptyState>
+            ) : (
+              <div className="grid gap-3 md:grid-cols-2">
+                {visibleRestaurants.map((restaurant) => (
+                  <div key={restaurant.id} className="rounded-xl border bg-white p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className="font-semibold text-gray-900">{restaurant.name}</div>
+                          {restaurant.is_active === false && (
+                            <span className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-600">
+                              Архив
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-1 text-sm text-gray-600">
+                          {[restaurant.city, restaurant.address].filter(Boolean).join(' · ')}
+                        </div>
+                        {restaurant.metro && (
+                          <div className="mt-2 text-sm text-gray-500">
+                            Метро: {restaurant.metro}
+                          </div>
+                        )}
+                        {restaurant.is_active === false && (
+                          <div className="mt-3 rounded-lg bg-gray-50 p-3 text-sm text-gray-600">
+                            {restaurant.archived_at && (
+                              <div>В архиве с {formatDateTime(restaurant.archived_at)}</div>
+                            )}
+                            {restaurant.archive_reason && (
+                              <div className="mt-1">Причина: {restaurant.archive_reason}</div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {restaurant.is_active === false ? (
+                        <button
+                          type="button"
+                          disabled={saving}
+                          onClick={() => handleRestoreRestaurant(restaurant)}
+                          className="rounded-lg border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          Вернуть из архива
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={saving}
+                          onClick={() => {
+                            setArchiveTarget(restaurant);
+                            setArchiveReason('');
+                          }}
+                          className="rounded-lg border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          Архивировать ресторан
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
         )}
 
