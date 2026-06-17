@@ -185,6 +185,13 @@ const EMPTY_SLOTS: Slot[] = [];
 const EMPTY_APPLICATIONS: Application[] = [];
 const EMPTY_EMPLOYEES: EmployeeProfile[] = [];
 
+const TIME_PRESETS = [
+  { label: '09:00-18:00', from: '09:00', to: '18:00' },
+  { label: '10:00-19:00', from: '10:00', to: '19:00' },
+  { label: '11:00-20:00', from: '11:00', to: '20:00' },
+  { label: '22:00-06:00', from: '22:00', to: '06:00' },
+];
+
 function pad(value: number) {
   return String(value).padStart(2, '0');
 }
@@ -568,6 +575,18 @@ export default function AdminDashboard({
 
   const currentMinTime = slotForm.work_date === todayStr ? nowTimeStr : undefined;
   const shiftMeta = getShiftMeta(slotForm.time_from, slotForm.time_to);
+  const selectedSlotRestaurant = slotForm.restaurant_id
+    ? restaurantMap.get(Number(slotForm.restaurant_id)) || null
+    : null;
+  const slotPreviewNeededCount = Math.max(1, Number(slotForm.needed_count || 1));
+
+  function applyTimePreset(fromValue: string, toValue: string) {
+    setSlotForm((current) => ({
+      ...current,
+      time_from: fromValue,
+      time_to: toValue,
+    }));
+  }
 
   async function runAdminAction(action: string, payload: Record<string, unknown>) {
     setSaving(true);
@@ -884,10 +903,27 @@ export default function AdminDashboard({
               description="Если ресторан один, он подставляется автоматически. Если ресторанов несколько, доступны только назначенные точки."
             />
 
+            {activeRestaurants.length === 0 && (
+              <EmptyState>
+                Активных ресторанов для создания слота нет. Архивные рестораны не доступны
+                для новых смен.
+              </EmptyState>
+            )}
+
             <form
               onSubmit={handleSlotSubmit}
               className="rounded-2xl border bg-white p-6 shadow-sm"
             >
+              <div className="mb-5">
+                <div className="text-lg font-semibold text-gray-900">
+                  {slotForm.slot_id ? 'Проверьте данные смены' : 'Новая смена'}
+                </div>
+                <p className="mt-1 text-sm text-gray-600">
+                  Заполните ресторан, время, должность и количество сотрудников. Ниже
+                  появится предварительный вид карточки.
+                </p>
+              </div>
+
               <div className="grid gap-4 md:grid-cols-2">
                 <Field label="Ресторан">
                   {activeRestaurants.length === 1 ? (
@@ -979,7 +1015,33 @@ export default function AdminDashboard({
                   </Field>
                 </div>
 
-                <Field label="Сколько человек нужно">
+                <div className="md:col-span-2">
+                  <div className="mb-2 text-sm font-medium text-gray-700">
+                    Быстро выбрать время
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {TIME_PRESETS.map((preset) => (
+                      <button
+                        key={preset.label}
+                        type="button"
+                        onClick={() => applyTimePreset(preset.from, preset.to)}
+                        className={`rounded-full px-3 py-2 text-sm ring-1 ${
+                          slotForm.time_from === preset.from && slotForm.time_to === preset.to
+                            ? 'bg-red-500 text-white ring-red-500'
+                            : 'bg-white text-gray-700 ring-gray-200 hover:bg-gray-50'
+                        }`}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-xs text-gray-500">
+                    Ночная смена вроде 22:00-06:00 автоматически считается сменой до
+                    следующего дня.
+                  </p>
+                </div>
+
+                <Field label="Количество сотрудников">
                   <input
                     type="number"
                     min={1}
@@ -993,6 +1055,9 @@ export default function AdminDashboard({
                     }
                     className="w-full rounded-lg border p-3"
                   />
+                  <span className="mt-1 block text-xs text-gray-500">
+                    Слот останется открытым, пока не будет принято нужное количество людей.
+                  </span>
                 </Field>
 
                 <Field label="Оплата в час">
@@ -1046,6 +1111,46 @@ export default function AdminDashboard({
                   {shiftMeta.overnight ? ' · смена заканчивается на следующий день' : ''}
                 </div>
               )}
+
+              <div className="mt-5 rounded-2xl border bg-gray-50 p-4">
+                <div className="mb-3 text-sm font-medium text-gray-700">
+                  Предварительный вид
+                </div>
+                <div className="rounded-xl border bg-white p-4">
+                  <div className="mb-2 flex flex-wrap gap-2 text-xs">
+                    <span className="rounded-full bg-blue-50 px-2 py-1 text-blue-700">
+                      Нужно {slotPreviewNeededCount}
+                    </span>
+                    {slotForm.is_hot && (
+                      <span className="rounded-full bg-red-100 px-2 py-1 text-red-700">
+                        Горячая смена
+                      </span>
+                    )}
+                    {shiftMeta.overnight && (
+                      <span className="rounded-full bg-purple-50 px-2 py-1 text-purple-700">
+                        Ночная смена
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-lg font-semibold text-gray-900">
+                    {slotForm.position || 'Должность не указана'}
+                  </div>
+                  <div className="mt-1 text-sm text-gray-600">
+                    {selectedSlotRestaurant?.name || 'Ресторан не выбран'} ·{' '}
+                    {slotForm.work_date ? formatDateRu(slotForm.work_date) : 'дата не выбрана'} ·{' '}
+                    {slotForm.time_from && slotForm.time_to
+                      ? formatShiftTimeRange(slotForm.time_from, slotForm.time_to, shiftMeta.overnight)
+                      : 'время не выбрано'}
+                  </div>
+                  <div className="mt-1 text-sm text-gray-600">
+                    {formatHours(shiftMeta.hours)} ·{' '}
+                    {slotForm.hourly_rate ? `${slotForm.hourly_rate} ₽/час` : 'оплата не указана'}
+                  </div>
+                  {slotForm.comment && (
+                    <div className="mt-3 text-sm text-gray-700">{slotForm.comment}</div>
+                  )}
+                </div>
+              </div>
 
               <div className="mt-5 flex flex-wrap gap-3">
                 <button
