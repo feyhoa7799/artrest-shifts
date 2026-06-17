@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { getCurrentAdminContext, jsonError, ApiError } from '@/lib/admin-api-auth';
 import { assertCanAccessRestaurant, type AdminContext } from '@/lib/admin-access';
+import { clearActiveRestaurantOptionsCache } from '@/lib/restaurants-cache';
+import { getShiftEndDate } from '@/lib/shift';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import {
   getApprovedApplicationsCount,
@@ -29,6 +31,12 @@ type ApplicationRow = {
   id: number;
   slot_id: number;
   status: 'pending' | 'approved' | 'rejected' | null;
+};
+
+type RestaurantRow = {
+  id: number;
+  name: string;
+  is_active: boolean | null;
 };
 
 function getString(body: Record<string, unknown>, key: string) {
@@ -107,6 +115,54 @@ async function getApplicationWithSlot(applicationId: number) {
   return { application, slot };
 }
 
+async function getRestaurant(restaurantId: number) {
+  const { data, error } = await supabaseAdmin
+    .from('restaurants')
+    .select('id, name, is_active')
+    .eq('id', restaurantId)
+    .single();
+
+  if (error || !data) {
+    throw new ApiError('Ресторан не найден', 404);
+  }
+
+  return data as RestaurantRow;
+}
+
+async function assertRestaurantIsActive(restaurantId: number) {
+  const restaurant = await getRestaurant(restaurantId);
+
+  if (restaurant.is_active === false) {
+    throw new ApiError('Нельзя создавать новые слоты для архивного ресторана', 400);
+  }
+
+  return restaurant;
+}
+
+async function getBlockingFutureSlots(restaurantId: number) {
+  const today = new Date().toISOString().slice(0, 10);
+  const { data, error } = await supabaseAdmin
+    .from('slots')
+    .select('id, work_date, time_from, time_to, position, status')
+    .eq('restaurant_id', restaurantId)
+    .neq('status', 'closed')
+    .gte('work_date', today)
+    .limit(50);
+
+  if (error) throw new Error(error.message);
+
+  const now = new Date();
+
+  return (data || []).filter((slot) => {
+    const row = slot as Pick<SlotRow, 'id' | 'work_date' | 'time_from' | 'time_to' | 'position' | 'status'>;
+    const end = getShiftEndDate(row.work_date, row.time_from, row.time_to);
+
+    if (!end) return row.work_date >= today;
+
+    return end.getTime() >= now.getTime();
+  });
+}
+
 async function handleSaveRestaurant(context: AdminContext, body: Record<string, unknown>) {
   if (!context.isGlobalAdmin) {
     throw new ApiError('Ресторанами могут управлять только HR и superadmin', 403);
@@ -147,6 +203,80 @@ async function handleSaveRestaurant(context: AdminContext, body: Record<string, 
   ]);
 
   if (error) throw new Error(error.message);
+
+  clearActiveRestaurantOptionsCache();
+}
+
+async function handleArchiveRestaurant(context: AdminContext, body: Record<string, unknown>) {
+  if (!context.isGlobalAdmin) {
+    throw new ApiError('Архивировать рестораны могут только HR и superadmin', 403);
+  }
+
+  const restaurantId = Number(getString(body, 'restaurant_id'));
+  const archiveReason = getString(body, 'archive_reason');
+
+  if (!restaurantId) {
+    throw new ApiError('Ресторан не найден', 400);
+  }
+
+  if (!archiveReason) {
+    throw new ApiError('Укажите причину архивирования ресторана', 400);
+  }
+
+  const restaurant = await getRestaurant(restaurantId);
+
+  if (restaurant.is_active === false) {
+    throw new ApiError('Ресторан уже в архиве', 400);
+  }
+
+  const blockingSlots = await getBlockingFutureSlots(restaurantId);
+
+  if (blockingSlots.length > 0) {
+    throw new ApiError(
+      `Нельзя архивировать ресторан: есть активные будущие слоты (${blockingSlots.length}). Сначала закройте их.`,
+      400
+    );
+  }
+
+  const { error } = await supabaseAdmin
+    .from('restaurants')
+    .update({
+      is_active: false,
+      archived_at: new Date().toISOString(),
+      archived_by: context.userId || context.email,
+      archive_reason: archiveReason,
+    })
+    .eq('id', restaurantId);
+
+  if (error) throw new Error(error.message);
+
+  clearActiveRestaurantOptionsCache();
+}
+
+async function handleRestoreRestaurant(context: AdminContext, body: Record<string, unknown>) {
+  if (!context.isGlobalAdmin) {
+    throw new ApiError('Возвращать рестораны из архива могут только HR и superadmin', 403);
+  }
+
+  const restaurantId = Number(getString(body, 'restaurant_id'));
+
+  if (!restaurantId) {
+    throw new ApiError('Ресторан не найден', 400);
+  }
+
+  const { error } = await supabaseAdmin
+    .from('restaurants')
+    .update({
+      is_active: true,
+      archived_at: null,
+      archived_by: null,
+      archive_reason: null,
+    })
+    .eq('id', restaurantId);
+
+  if (error) throw new Error(error.message);
+
+  clearActiveRestaurantOptionsCache();
 }
 
 async function handleSaveSlot(context: AdminContext, body: Record<string, unknown>) {
@@ -198,6 +328,12 @@ async function handleSaveSlot(context: AdminContext, body: Record<string, unknow
         400
       );
     }
+
+    if (restaurantId !== currentSlot.restaurant_id) {
+      await assertRestaurantIsActive(restaurantId);
+    }
+  } else {
+    await assertRestaurantIsActive(restaurantId);
   }
 
   const payload = {
@@ -254,6 +390,7 @@ async function handleReopenSlotAsNew(context: AdminContext, body: Record<string,
 
   const slot = await getSlot(slotId);
   assertCanAccessRestaurant(context, slot.restaurant_id);
+  await assertRestaurantIsActive(slot.restaurant_id);
 
   const { error } = await supabaseAdmin.from('slots').insert([
     {
@@ -387,6 +524,10 @@ export async function POST(req: NextRequest) {
 
     if (action === 'saveRestaurant') {
       await handleSaveRestaurant(context, body);
+    } else if (action === 'archiveRestaurant') {
+      await handleArchiveRestaurant(context, body);
+    } else if (action === 'restoreRestaurant') {
+      await handleRestoreRestaurant(context, body);
     } else if (action === 'saveSlot') {
       await handleSaveSlot(context, body);
     } else if (action === 'closeSlot') {

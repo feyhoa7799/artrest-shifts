@@ -9,6 +9,9 @@ type Restaurant = {
   address: string;
   city: string;
   metro: string | null;
+  is_active: boolean | null;
+  archived_at: string | null;
+  archive_reason: string | null;
 };
 
 type Slot = {
@@ -72,7 +75,7 @@ export async function GET(req: NextRequest) {
 
     let restaurantsQuery = supabaseAdmin
       .from('restaurants')
-      .select('id, name, address, city, metro')
+      .select('id, name, address, city, metro, is_active, archived_at, archive_reason')
       .order('name', { ascending: true });
 
     if (Array.isArray(scopedRestaurantIds)) {
