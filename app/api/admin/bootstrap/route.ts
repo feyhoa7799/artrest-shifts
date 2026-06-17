@@ -56,6 +56,18 @@ type EmployeeProfile = {
   is_blocked: boolean;
   created_at: string;
   updated_at: string;
+  activity: EmployeeActivitySummary | null;
+};
+
+type EmployeeActivitySummary = {
+  last_seen_at: string | null;
+  last_seen_source: string | null;
+  last_page: string | null;
+  last_login_at: string | null;
+  last_application_at: string | null;
+  last_action_at: string | null;
+  ping_count: number | null;
+  updated_at: string | null;
 };
 
 export async function GET(req: NextRequest) {
@@ -146,7 +158,41 @@ export async function GET(req: NextRequest) {
         throw new Error(employeesError.message);
       }
 
-      employees = (employeesData || []) as EmployeeProfile[];
+      const employeeRows = (employeesData || []) as Omit<EmployeeProfile, 'activity'>[];
+      const employeeUserIds = employeeRows.map((employee) => employee.user_id).filter(Boolean);
+      const activityByUserId = new Map<string, EmployeeActivitySummary>();
+
+      if (employeeUserIds.length > 0) {
+        const { data: activityData, error: activityError } = await supabaseAdmin
+          .from('user_activity_summary')
+          .select(
+            'user_id, last_seen_at, last_seen_source, last_page, last_login_at, last_application_at, last_action_at, ping_count, updated_at'
+          )
+          .in('user_id', employeeUserIds);
+
+        if (activityError) {
+          throw new Error(activityError.message);
+        }
+
+        (activityData || []).forEach((item) => {
+          const row = item as EmployeeActivitySummary & { user_id: string };
+          activityByUserId.set(row.user_id, {
+            last_seen_at: row.last_seen_at,
+            last_seen_source: row.last_seen_source,
+            last_page: row.last_page,
+            last_login_at: row.last_login_at,
+            last_application_at: row.last_application_at,
+            last_action_at: row.last_action_at,
+            ping_count: row.ping_count,
+            updated_at: row.updated_at,
+          });
+        });
+      }
+
+      employees = employeeRows.map((employee) => ({
+        ...employee,
+        activity: activityByUserId.get(employee.user_id) || null,
+      }));
     }
 
     return NextResponse.json({

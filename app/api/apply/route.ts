@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { notifyAboutNewApplication } from '@/lib/application-notifications';
+import { touchUserActivity } from '@/lib/activity';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getApprovedApplicationsCount, normalizeNeededCount } from '@/lib/slot-capacity';
 
@@ -175,6 +176,18 @@ export async function POST(req: NextRequest) {
         { error: applicationError?.message || 'Не удалось создать отклик' },
         { status: 500 }
       );
+    }
+
+    try {
+      await touchUserActivity({
+        userId: user.id,
+        email: employeeProfile.email || user.email || null,
+        lastPage: '/slots',
+        source: 'application',
+        markApplication: true,
+      });
+    } catch (activityError) {
+      console.error('Application activity update failed:', activityError);
     }
 
     const notification = await notifyAboutNewApplication({

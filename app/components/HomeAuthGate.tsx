@@ -9,6 +9,7 @@ import Turnstile from 'react-turnstile';
 import ApprovedShiftsCard, {
   type MyApplication,
 } from '@/app/components/ApprovedShiftsCard';
+import { useActivityPing } from '@/app/components/useActivityPing';
 import { validatePasswordStrength } from '@/lib/password';
 import { supabase } from '@/lib/supabase';
 
@@ -187,6 +188,8 @@ export default function HomeAuthGate() {
   const completeProfileRequired = searchParams.get('completeProfile') === '1';
   const profileReady = isProfileComplete(profile);
   const firstName = getFirstName(profile, sessionUser);
+
+  useActivityPing(sessionAccessToken);
 
   const passwordCheck = useMemo(
     () => validatePasswordStrength(registerPassword, registerEmail),
