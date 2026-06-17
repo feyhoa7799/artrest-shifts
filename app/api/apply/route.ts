@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { notifyAboutNewApplication } from '@/lib/application-notifications';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { getApprovedApplicationsCount, normalizeNeededCount } from '@/lib/slot-capacity';
 
 type EmployeeProfileRow = {
   user_id: string;
@@ -22,6 +23,8 @@ type SlotRow = {
   hourly_rate: number | null;
   comment: string | null;
   status: string;
+  needed_count: number | null;
+  accepted_count: number | null;
 };
 
 type ApplicationRow = {
@@ -73,7 +76,7 @@ export async function POST(req: NextRequest) {
     const { data: slot, error: slotError } = await supabaseAdmin
       .from('slots')
       .select(
-        'id, restaurant_id, work_date, time_from, time_to, position, hourly_rate, comment, status'
+        'id, restaurant_id, work_date, time_from, time_to, position, hourly_rate, comment, status, needed_count, accepted_count'
       )
       .eq('id', slotId)
       .single();
@@ -87,6 +90,16 @@ export async function POST(req: NextRequest) {
     if (currentSlot.status !== 'open') {
       return NextResponse.json(
         { error: 'Эта смена уже недоступна' },
+        { status: 400 }
+      );
+    }
+
+    const neededCount = normalizeNeededCount(currentSlot.needed_count);
+    const acceptedCount = await getApprovedApplicationsCount(slotId);
+
+    if (acceptedCount >= neededCount) {
+      return NextResponse.json(
+        { error: 'Эта смена уже укомплектована' },
         { status: 400 }
       );
     }
@@ -162,15 +175,6 @@ export async function POST(req: NextRequest) {
         { error: applicationError?.message || 'Не удалось создать отклик' },
         { status: 500 }
       );
-    }
-
-    const { error: slotUpdateError } = await supabaseAdmin
-      .from('slots')
-      .update({ status: 'pending' })
-      .eq('id', slotId);
-
-    if (slotUpdateError) {
-      return NextResponse.json({ error: slotUpdateError.message }, { status: 500 });
     }
 
     const notification = await notifyAboutNewApplication({

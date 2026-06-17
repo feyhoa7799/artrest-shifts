@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { syncSlotCapacity } from '@/lib/slot-capacity';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 
 type ApplicationRow = {
@@ -75,18 +76,7 @@ export async function POST(
       return NextResponse.json({ error: updateError.message }, { status: 500 });
     }
 
-    const { data: otherApplications } = await supabaseAdmin
-      .from('applications')
-      .select('id')
-      .eq('slot_id', currentApplication.slot_id)
-      .in('status', ['pending', 'approved']);
-
-    if (!otherApplications || otherApplications.length === 0) {
-      await supabaseAdmin
-        .from('slots')
-        .update({ status: 'open' })
-        .eq('id', currentApplication.slot_id);
-    }
+    await syncSlotCapacity(currentApplication.slot_id);
 
     return NextResponse.json({ success: true });
   } catch {
