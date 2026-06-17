@@ -5,6 +5,7 @@ import Link from 'next/link';
 
 import AdminAccessManager from './AdminAccessManager';
 import AdminRefreshButton from './AdminRefreshButton';
+import { formatActivityStatus } from '@/lib/activity-format';
 import { supabase } from '@/lib/supabase';
 import {
   formatDateRu,
@@ -93,6 +94,18 @@ type EmployeeProfile = {
   is_blocked: boolean;
   created_at: string;
   updated_at: string;
+  activity: EmployeeActivitySummary | null;
+};
+
+type EmployeeActivitySummary = {
+  last_seen_at: string | null;
+  last_seen_source: string | null;
+  last_page: string | null;
+  last_login_at: string | null;
+  last_application_at: string | null;
+  last_action_at: string | null;
+  ping_count: number | null;
+  updated_at: string | null;
 };
 
 type BootstrapResponse = {
@@ -1393,6 +1406,36 @@ export default function AdminDashboard({
                             >
                               {employee.is_blocked ? 'Заблокирован' : 'Активен'}
                             </span>
+                          </div>
+
+                          <div className="mt-3 rounded-xl bg-gray-50 p-3 text-sm text-gray-700">
+                            <div className="font-medium text-gray-900">
+                              Последний вход/визит: {formatActivityStatus(employee.activity?.last_seen_at)}
+                            </div>
+                            {employee.activity?.last_seen_at ? (
+                              <div className="mt-1 text-xs text-gray-500">
+                                Точное время: {formatDateTime(employee.activity.last_seen_at)}
+                              </div>
+                            ) : (
+                              <div className="mt-1 text-xs text-gray-500">
+                                Активность пока не фиксировалась.
+                              </div>
+                            )}
+                            {employee.activity?.last_page && (
+                              <div className="mt-1 text-xs text-gray-500">
+                                Последняя страница: {employee.activity.last_page}
+                              </div>
+                            )}
+                            {employee.activity?.last_application_at && (
+                              <div className="mt-1 text-xs text-gray-500">
+                                Последний отклик: {formatDateTime(employee.activity.last_application_at)}
+                              </div>
+                            )}
+                            {typeof employee.activity?.ping_count === 'number' && (
+                              <div className="mt-1 text-xs text-gray-500">
+                                Сигналов активности: {employee.activity.ping_count}
+                              </div>
+                            )}
                           </div>
                         </div>
 
