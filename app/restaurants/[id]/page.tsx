@@ -20,6 +20,8 @@ type Slot = {
   comment: string | null;
   status: 'open' | 'pending' | 'closed' | 'assigned';
   is_hot: boolean | null;
+  needed_count: number | null;
+  accepted_count: number | null;
   created_at: string;
 };
 
@@ -65,6 +67,14 @@ function formatDateRu(value: string) {
   return `${day}.${month}.${year}`;
 }
 
+function getNeededCount(slot: Slot) {
+  return Math.max(1, Number(slot.needed_count || 1));
+}
+
+function getAcceptedCount(slot: Slot) {
+  return Math.max(0, Number(slot.accepted_count || 0));
+}
+
 export default async function RestaurantPage({ params }: PageProps) {
   const { id } = await params;
   const restaurantId = Number(id);
@@ -79,7 +89,7 @@ export default async function RestaurantPage({ params }: PageProps) {
   const { data: slotsData, error: slotsError } = await supabase
     .from('slots')
     .select(
-      'id, restaurant_id, work_date, time_from, time_to, position, hourly_rate, comment, status, is_hot, created_at'
+      'id, restaurant_id, work_date, time_from, time_to, position, hourly_rate, comment, status, is_hot, needed_count, accepted_count, created_at'
     )
     .eq('restaurant_id', restaurantId)
     .eq('status', 'open')
@@ -178,6 +188,10 @@ export default async function RestaurantPage({ params }: PageProps) {
 
                     <span className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-700">
                       {formatDateRu(slot.work_date)}
+                    </span>
+
+                    <span className="rounded-full bg-blue-50 px-2 py-1 text-xs text-blue-700">
+                      Свободных мест: {Math.max(0, getNeededCount(slot) - getAcceptedCount(slot))}
                     </span>
                   </div>
 

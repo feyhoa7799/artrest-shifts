@@ -1,23 +1,44 @@
 'use client';
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import Link from 'next/link';
-import {
-  approveApplication,
-  closeSlot,
-  rejectApplication,
-  reopenSlotAsNew,
-  saveRestaurant,
-  saveSlot,
-  toggleEmployeeBlock,
-} from './actions';
+
+import AdminAccessManager from './AdminAccessManager';
 import AdminRefreshButton from './AdminRefreshButton';
+import { supabase } from '@/lib/supabase';
 import {
   formatDateRu,
   formatHours,
   formatShiftTimeRange,
+  getShiftEndDate,
   getShiftMeta,
 } from '@/lib/shift';
+
+type AdminRole =
+  | 'admin'
+  | 'superadmin'
+  | 'hr_admin'
+  | 'territory_admin'
+  | 'restaurant_admin';
+
+type CanonicalAdminRole =
+  | 'superadmin'
+  | 'hr_admin'
+  | 'territory_admin'
+  | 'restaurant_admin';
+
+type AdminContext = {
+  email: string;
+  isAdmin: boolean;
+  isSuperadmin: boolean;
+  isHrAdmin: boolean;
+  isGlobalAdmin: boolean;
+  canManageAccess: boolean;
+  canManageSuperadmins: boolean;
+  role: AdminRole;
+  canonicalRole: CanonicalAdminRole;
+  accessibleRestaurantIds: number[] | null;
+};
 
 type Restaurant = {
   id: number;
@@ -38,6 +59,8 @@ type Slot = {
   comment: string | null;
   status: 'open' | 'pending' | 'closed' | 'assigned';
   is_hot: boolean | null;
+  needed_count: number | null;
+  accepted_count: number | null;
   created_at: string;
 };
 
@@ -69,22 +92,21 @@ type EmployeeProfile = {
   updated_at: string;
 };
 
-type Props = {
+type BootstrapResponse = {
+  admin: AdminContext;
   restaurants: Restaurant[];
-  openSlots: Slot[];
-  unrealizedSlots: Slot[];
-  closedSlots: Slot[];
-  assignedSlots: Slot[];
-  pendingApplications: Application[];
-  approvedAppBySlotId: Record<number, Application>;
-  editSlot: Slot | null;
-  tab: string;
-  q: string;
-  restaurantFilter: string;
-  from: string;
-  to: string;
-  allSlots: Slot[];
+  slots: Slot[];
+  applications: Application[];
   employees: EmployeeProfile[];
+};
+
+type InitialSearchParams = {
+  tab?: string;
+  q?: string;
+  restaurant?: string;
+  from?: string;
+  to?: string;
+  edit?: string;
 };
 
 type SlotFormState = {
@@ -97,8 +119,28 @@ type SlotFormState = {
   hourly_rate: string;
   comment: string;
   is_hot: boolean;
-  status: string;
+  needed_count: string;
 };
+
+type RestaurantFormState = {
+  name: string;
+  address: string;
+  city: string;
+  metro: string;
+  lat: string;
+  lng: string;
+};
+
+type DashboardTab =
+  | 'applications'
+  | 'open'
+  | 'create'
+  | 'assigned'
+  | 'closed'
+  | 'unrealized'
+  | 'restaurants'
+  | 'employees'
+  | 'access';
 
 const emptySlotForm: SlotFormState = {
   slot_id: '',
@@ -110,8 +152,22 @@ const emptySlotForm: SlotFormState = {
   hourly_rate: '',
   comment: '',
   is_hot: false,
-  status: 'open',
+  needed_count: '1',
 };
+
+const emptyRestaurantForm: RestaurantFormState = {
+  name: '',
+  address: '',
+  city: '',
+  metro: '',
+  lat: '',
+  lng: '',
+};
+
+const EMPTY_RESTAURANTS: Restaurant[] = [];
+const EMPTY_SLOTS: Slot[] = [];
+const EMPTY_APPLICATIONS: Application[] = [];
+const EMPTY_EMPLOYEES: EmployeeProfile[] = [];
 
 function pad(value: number) {
   return String(value).padStart(2, '0');
@@ -130,1108 +186,1339 @@ function getNowLocalTime() {
 function formatDateTime(value: string) {
   const date = new Date(value);
 
+  if (Number.isNaN(date.getTime())) return value;
+
   return new Intl.DateTimeFormat('ru-RU', {
     dateStyle: 'short',
     timeStyle: 'short',
   }).format(date);
 }
 
-function buildAdminHref(params: {
-  tab: string;
-  q?: string;
-  restaurantFilter?: string;
-  from?: string;
-  to?: string;
-  edit?: string | number | null;
-}) {
-  const search = new URLSearchParams();
+async function getAccessToken() {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
 
-  search.set('tab', params.tab);
-
-  if (params.q) search.set('q', params.q);
-  if (params.restaurantFilter) search.set('restaurant', params.restaurantFilter);
-  if (params.from) search.set('from', params.from);
-  if (params.to) search.set('to', params.to);
-  if (params.edit) search.set('edit', String(params.edit));
-
-  return `/admin?${search.toString()}`;
+  return session?.access_token || null;
 }
 
-function includesText(value: string, query: string) {
-  return value.toLowerCase().includes(query.toLowerCase());
+async function fetchAdminJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = await getAccessToken();
+
+  if (!token) {
+    throw new Error('Нет авторизации');
+  }
+
+  const res = await fetch(path, {
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      ...(init?.headers || {}),
+    },
+  });
+
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : null;
+
+  if (!res.ok) {
+    throw new Error(data?.error || 'Ошибка запроса');
+  }
+
+  return data as T;
 }
 
-function FilterField({ label, children }: { label: string; children: ReactNode }) {
+function roleLabel(role: CanonicalAdminRole) {
+  const labels: Record<CanonicalAdminRole, string> = {
+    superadmin: 'Суперадмин',
+    hr_admin: 'HR-админ',
+    territory_admin: 'Территориальный админ',
+    restaurant_admin: 'Админ ресторана',
+  };
+
+  return labels[role];
+}
+
+function getNeededCount(slot: Slot) {
+  return Math.max(1, Number(slot.needed_count || 1));
+}
+
+function getAcceptedCount(slot: Slot) {
+  return Math.max(0, Number(slot.accepted_count || 0));
+}
+
+function getRemainingCount(slot: Slot) {
+  return Math.max(0, getNeededCount(slot) - getAcceptedCount(slot));
+}
+
+function slotStatusLabel(slot: Slot, now = new Date()) {
+  if (slot.status === 'closed') return 'Закрыт';
+  if (getAcceptedCount(slot) >= getNeededCount(slot) || slot.status === 'assigned') {
+    return 'Укомплектован';
+  }
+  if (isSlotFinished(slot, now)) return 'Прошёл без полного набора';
+  return 'Открыт';
+}
+
+function applicationStatusLabel(status: Application['status']) {
+  if (status === 'approved') return 'Принят';
+  if (status === 'rejected') return 'Отклонён';
+  return 'Новый';
+}
+
+function formatMoney(value: number | null | undefined) {
+  if (!value) return '—';
+  return `${value} ₽/час`;
+}
+
+function matchesText(value: string, q: string) {
+  return value.toLowerCase().includes(q.toLowerCase());
+}
+
+function buildSlotSearch(slot: Slot, restaurant?: Restaurant | null) {
+  return [
+    slot.position,
+    slot.work_date,
+    slot.time_from,
+    slot.time_to,
+    slot.comment || '',
+    restaurant?.name || '',
+    restaurant?.address || '',
+  ].join(' ');
+}
+
+function buildApplicationSearch(
+  app: Application,
+  slot?: Slot | null,
+  restaurant?: Restaurant | null
+) {
+  return [
+    app.full_name,
+    app.home_restaurant,
+    app.contact,
+    app.comment || '',
+    app.rejection_reason || '',
+    app.employee_email || '',
+    app.employee_phone || '',
+    app.employee_role || '',
+    slot?.position || '',
+    slot?.work_date || '',
+    slot?.time_from || '',
+    slot?.time_to || '',
+    restaurant?.name || '',
+    restaurant?.address || '',
+  ].join(' ');
+}
+
+function isSlotFinished(slot: Slot, now = new Date()) {
+  const end = getShiftEndDate(slot.work_date, slot.time_from, slot.time_to);
+
+  if (!end) return false;
+
+  return end.getTime() < now.getTime();
+}
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div>
-      <label className="mb-1 block text-sm font-medium text-gray-700">{label}</label>
+    <label className="block">
+      <span className="mb-1 block text-sm font-medium text-gray-700">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+function EmptyState({ children }: { children: ReactNode }) {
+  return (
+    <div className="rounded-xl border border-dashed bg-white p-6 text-sm text-gray-600">
       {children}
     </div>
   );
 }
 
+function buildSlotFormFromSlot(slot: Slot): SlotFormState {
+  return {
+    slot_id: String(slot.id),
+    restaurant_id: String(slot.restaurant_id),
+    work_date: slot.work_date,
+    time_from: slot.time_from.slice(0, 5),
+    time_to: slot.time_to.slice(0, 5),
+    position: slot.position,
+    hourly_rate: slot.hourly_rate ? String(slot.hourly_rate) : '',
+    comment: slot.comment || '',
+    is_hot: Boolean(slot.is_hot),
+    needed_count: String(getNeededCount(slot)),
+  };
+}
+
 export default function AdminDashboard({
-  restaurants,
-  openSlots,
-  unrealizedSlots,
-  closedSlots,
-  assignedSlots,
-  pendingApplications,
-  approvedAppBySlotId,
-  editSlot,
-  tab,
-  q,
-  restaurantFilter,
-  from,
-  to,
-  allSlots,
-  employees,
-}: Props) {
+  initialSearchParams,
+}: {
+  initialSearchParams: InitialSearchParams;
+}) {
   const todayStr = getTodayLocalDate();
   const nowTimeStr = getNowLocalTime();
 
-  const [slotForm, setSlotForm] = useState<SlotFormState>(emptySlotForm);
-  const [slotQuickSearch, setSlotQuickSearch] = useState('');
-  const [slotQuickRestaurant, setSlotQuickRestaurant] = useState('');
-  const [slotQuickPosition, setSlotQuickPosition] = useState('');
-  const [slotQuickHotOnly, setSlotQuickHotOnly] = useState(false);
-  const [applicationQuickSearch, setApplicationQuickSearch] = useState('');
-  const [applicationQuickRole, setApplicationQuickRole] = useState('');
-  const [applicationQuickRestaurant, setApplicationQuickRestaurant] = useState('');
-  const [employeeQuickSearch, setEmployeeQuickSearch] = useState('');
-  const [employeeQuickRole, setEmployeeQuickRole] = useState('');
-  const [employeeQuickRestaurant, setEmployeeQuickRestaurant] = useState('');
-  const [employeeQuickStatus, setEmployeeQuickStatus] = useState<'all' | 'active' | 'blocked'>(
-    'all'
+  const [data, setData] = useState<BootstrapResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+
+  const [tab, setTab] = useState<DashboardTab>(
+    (initialSearchParams.tab as DashboardTab) || 'applications'
   );
+  const [q, setQ] = useState(initialSearchParams.q || '');
+  const [restaurantFilter, setRestaurantFilter] = useState(
+    initialSearchParams.restaurant || ''
+  );
+  const [from, setFrom] = useState(initialSearchParams.from || '');
+  const [to, setTo] = useState(initialSearchParams.to || '');
+
+  const [slotForm, setSlotForm] = useState<SlotFormState>(emptySlotForm);
+  const [restaurantForm, setRestaurantForm] =
+    useState<RestaurantFormState>(emptyRestaurantForm);
+  const [applicationReasons, setApplicationReasons] = useState<Record<number, string>>({});
+
+  async function load() {
+    setLoading(true);
+    setError('');
+
+    try {
+      const nextData = await fetchAdminJson<BootstrapResponse>('/api/admin/bootstrap');
+
+      setData(nextData);
+
+      if (nextData.restaurants.length === 1) {
+        setSlotForm((current) => ({
+          ...current,
+          restaurant_id: current.restaurant_id || String(nextData.restaurants[0].id),
+        }));
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ошибка загрузки админки');
+      setData(null);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
+    void load();
+  }, []);
+
+  useEffect(() => {
+    if (!data) return;
+
+    const editId = Number(initialSearchParams.edit || 0);
+    const editSlot = editId
+      ? data.slots.find((slot) => slot.id === editId) || null
+      : null;
+
     if (editSlot) {
-      setSlotForm({
-        slot_id: String(editSlot.id),
-        restaurant_id: String(editSlot.restaurant_id),
-        work_date: editSlot.work_date,
-        time_from: editSlot.time_from.slice(0, 5),
-        time_to: editSlot.time_to.slice(0, 5),
-        position: editSlot.position,
-        hourly_rate: editSlot.hourly_rate ? String(editSlot.hourly_rate) : '',
-        comment: editSlot.comment || '',
-        is_hot: Boolean(editSlot.is_hot),
-        status: editSlot.status,
-      });
-    } else {
-      setSlotForm(emptySlotForm);
+      setSlotForm(buildSlotFormFromSlot(editSlot));
+      setTab('create');
     }
-  }, [editSlot]);
+  }, [data, initialSearchParams.edit]);
 
-  const shiftMeta = getShiftMeta(slotForm.time_from, slotForm.time_to);
-  const currentMinTime = slotForm.work_date === todayStr ? nowTimeStr : undefined;
+  const restaurants = data?.restaurants ?? EMPTY_RESTAURANTS;
+  const slots = data?.slots ?? EMPTY_SLOTS;
+  const applications = data?.applications ?? EMPTY_APPLICATIONS;
+  const employees = data?.employees ?? EMPTY_EMPLOYEES;
+  const admin = data?.admin || null;
 
-  const getRestaurantById = (restaurantId?: number | null) => {
-    if (!restaurantId) return null;
-    return restaurants.find((restaurant) => restaurant.id === restaurantId) || null;
+  const restaurantMap = useMemo(() => {
+    const map = new Map<number, Restaurant>();
+    restaurants.forEach((restaurant) => map.set(restaurant.id, restaurant));
+    return map;
+  }, [restaurants]);
+
+  const slotMap = useMemo(() => {
+    const map = new Map<number, Slot>();
+    slots.forEach((slot) => map.set(slot.id, slot));
+    return map;
+  }, [slots]);
+
+  const applicationsBySlotId = useMemo(() => {
+    const map = new Map<number, Application[]>();
+
+    applications.forEach((application) => {
+      const items = map.get(application.slot_id) || [];
+      items.push(application);
+      map.set(application.slot_id, items);
+    });
+
+    return map;
+  }, [applications]);
+
+  const approvedApplicationsBySlotId = useMemo(() => {
+    const map = new Map<number, Application[]>();
+
+    applications
+      .filter((application) => application.status === 'approved')
+      .forEach((application) => {
+        const items = map.get(application.slot_id) || [];
+        items.push(application);
+        map.set(application.slot_id, items);
+      });
+
+    return map;
+  }, [applications]);
+
+  const filterByRestaurantAndDate = (slot: Slot) => {
+    if (restaurantFilter && String(slot.restaurant_id) !== restaurantFilter) return false;
+    if (from && slot.work_date < from) return false;
+    if (to && slot.work_date > to) return false;
+    return true;
   };
 
-  const restaurantOptions = useMemo(
-    () => restaurants.map((restaurant) => ({ value: String(restaurant.id), label: restaurant.name })),
-    [restaurants]
+  const now = new Date();
+  const filteredSlots = slots.filter(
+    (slot) =>
+      filterByRestaurantAndDate(slot) &&
+      (!q || matchesText(buildSlotSearch(slot, restaurantMap.get(slot.restaurant_id)), q))
   );
 
-  const slotPositionOptions = useMemo(() => {
-    const positions = new Set<string>();
-
-    [...openSlots, ...unrealizedSlots, ...closedSlots, ...assignedSlots].forEach((slot) => {
-      if (slot.position) positions.add(slot.position);
-    });
-
-    return [...positions].sort((a, b) => a.localeCompare(b, 'ru'));
-  }, [openSlots, unrealizedSlots, closedSlots, assignedSlots]);
-
-  const employeeRoleOptions = useMemo(() => {
-    const roles = new Set<string>();
-
-    employees.forEach((employee) => {
-      if (employee.role) roles.add(employee.role);
-    });
-
-    pendingApplications.forEach((app) => {
-      if (app.employee_role) roles.add(app.employee_role);
-    });
-
-    return [...roles].sort((a, b) => a.localeCompare(b, 'ru'));
-  }, [employees, pendingApplications]);
-
-  const filterSlotsForView = (slots: Slot[]) =>
-    slots.filter((slot) => {
-      const restaurant = getRestaurantById(slot.restaurant_id);
-
-      if (slotQuickRestaurant && String(slot.restaurant_id) !== slotQuickRestaurant) return false;
-      if (slotQuickPosition && slot.position !== slotQuickPosition) return false;
-      if (slotQuickHotOnly && !slot.is_hot) return false;
-
-      if (!slotQuickSearch.trim()) return true;
-
-      return includesText(
-        [
-          slot.position,
-          slot.work_date,
-          slot.time_from,
-          slot.time_to,
-          slot.comment || '',
-          restaurant?.name || '',
-          restaurant?.address || '',
-          restaurant?.city || '',
-          restaurant?.metro || '',
-        ].join(' '),
-        slotQuickSearch.trim()
-      );
-    });
-
-  const openSlotsView = useMemo(
-    () => filterSlotsForView(openSlots),
-    [openSlots, slotQuickSearch, slotQuickRestaurant, slotQuickPosition, slotQuickHotOnly]
+  const openSlots = filteredSlots.filter(
+    (slot) =>
+      slot.status !== 'closed' &&
+      getAcceptedCount(slot) < getNeededCount(slot) &&
+      !isSlotFinished(slot, now)
+  );
+  const assignedSlots = filteredSlots.filter(
+    (slot) => slot.status === 'assigned' || getAcceptedCount(slot) >= getNeededCount(slot)
+  );
+  const closedSlots = filteredSlots.filter((slot) => slot.status === 'closed');
+  const unrealizedSlots = filteredSlots.filter(
+    (slot) =>
+      slot.status !== 'closed' &&
+      getAcceptedCount(slot) < getNeededCount(slot) &&
+      isSlotFinished(slot, now)
   );
 
-  const unrealizedSlotsView = useMemo(
-    () => filterSlotsForView(unrealizedSlots),
-    [unrealizedSlots, slotQuickSearch, slotQuickRestaurant, slotQuickPosition, slotQuickHotOnly]
-  );
+  const pendingApplications = applications.filter((application) => {
+    const slot = slotMap.get(application.slot_id);
 
-  const closedSlotsView = useMemo(
-    () => filterSlotsForView(closedSlots),
-    [closedSlots, slotQuickSearch, slotQuickRestaurant, slotQuickPosition, slotQuickHotOnly]
-  );
+    if (!slot) return false;
+    if (application.status && application.status !== 'pending') return false;
+    if (!filterByRestaurantAndDate(slot)) return false;
 
-  const assignedSlotsView = useMemo(
-    () => filterSlotsForView(assignedSlots),
-    [assignedSlots, slotQuickSearch, slotQuickRestaurant, slotQuickPosition, slotQuickHotOnly]
-  );
+    if (!q) return true;
 
-  const pendingApplicationsView = useMemo(
-    () =>
-      pendingApplications.filter((app) => {
-        const slot = allSlots.find((item) => item.id === app.slot_id);
-        const workRestaurant = getRestaurantById(slot?.restaurant_id);
-
-        if (applicationQuickRole && app.employee_role !== applicationQuickRole) return false;
-        if (
-          applicationQuickRestaurant &&
-          String(slot?.restaurant_id || '') !== applicationQuickRestaurant
-        ) {
-          return false;
-        }
-
-        if (!applicationQuickSearch.trim()) return true;
-
-        return includesText(
-          [
-            app.full_name,
-            app.home_restaurant,
-            app.contact,
-            app.comment || '',
-            app.employee_email || '',
-            app.employee_phone || '',
-            app.employee_role || '',
-            workRestaurant?.name || '',
-            workRestaurant?.address || '',
-            slot?.position || '',
-            slot?.work_date || '',
-          ].join(' '),
-          applicationQuickSearch.trim()
-        );
-      }),
-    [pendingApplications, allSlots, applicationQuickRole, applicationQuickRestaurant, applicationQuickSearch]
-  );
-
-  const employeesView = useMemo(
-    () =>
-      employees.filter((employee) => {
-        const homeRestaurant = getRestaurantById(employee.home_restaurant_id);
-
-        if (employeeQuickRole && employee.role !== employeeQuickRole) return false;
-
-        if (
-          employeeQuickRestaurant &&
-          String(employee.home_restaurant_id) !== employeeQuickRestaurant
-        ) {
-          return false;
-        }
-
-        if (employeeQuickStatus === 'active' && employee.is_blocked) return false;
-        if (employeeQuickStatus === 'blocked' && !employee.is_blocked) return false;
-
-        if (!employeeQuickSearch.trim()) return true;
-
-        return includesText(
-          [
-            employee.email,
-            employee.full_name,
-            employee.phone,
-            employee.role,
-            homeRestaurant?.name || '',
-            homeRestaurant?.address || '',
-            homeRestaurant?.city || '',
-          ].join(' '),
-          employeeQuickSearch.trim()
-        );
-      }),
-    [employees, employeeQuickRole, employeeQuickRestaurant, employeeQuickStatus, employeeQuickSearch]
-  );
-
-  const renderCreated = (createdAt: string) => (
-    <p className="mt-2 text-xs text-gray-500">Создано: {formatDateTime(createdAt)}</p>
-  );
-
-  const renderSlotCard = (slot: Slot, extraActions?: ReactNode, extraBlock?: ReactNode) => {
-    const restaurant = getRestaurantById(slot.restaurant_id);
-    const meta = getShiftMeta(slot.time_from, slot.time_to);
-
-    return (
-      <div key={slot.id} className="rounded-2xl border bg-white p-5 shadow-sm">
-        <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h3 className="text-lg font-semibold">
-              {restaurant?.name || 'Ресторан не найден'}
-            </h3>
-            <p className="text-sm text-gray-600">{restaurant?.address || ''}</p>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            {slot.is_hot && (
-              <span className="rounded-full bg-red-100 px-3 py-1 text-sm font-medium text-red-700">
-                Горячая
-              </span>
-            )}
-
-            <span className="rounded-full bg-gray-100 px-3 py-1 text-sm text-gray-700">
-              {slot.status}
-            </span>
-          </div>
-        </div>
-
-        <div className="grid gap-2 text-sm text-gray-700 md:grid-cols-2">
-          <p>Дата: {formatDateRu(slot.work_date)}</p>
-          <p>Должность: {slot.position}</p>
-          <p>Время: {formatShiftTimeRange(slot.time_from, slot.time_to, meta.overnight)}</p>
-          <p>Длительность: {formatHours(meta.hours)}</p>
-          {slot.hourly_rate ? <p>Оплата: {slot.hourly_rate} ₽/час</p> : null}
-          {restaurant?.metro && <p>Метро: {restaurant.metro}</p>}
-        </div>
-
-        {slot.comment && (
-          <div className="mt-3 rounded-xl bg-gray-50 p-4 text-sm text-gray-700">
-            {slot.comment}
-          </div>
-        )}
-
-        {renderCreated(slot.created_at)}
-        {extraBlock}
-
-        {extraActions && <div className="mt-4 flex flex-wrap gap-2">{extraActions}</div>}
-      </div>
+    return matchesText(
+      buildApplicationSearch(application, slot, restaurantMap.get(slot.restaurant_id)),
+      q
     );
-  };
+  });
 
-  const slotFilters = (
-    <div className="rounded-2xl border bg-white p-4 shadow-sm">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <h3 className="font-semibold">Фильтры внутри вкладки</h3>
-        <button
-          type="button"
-          onClick={() => {
-            setSlotQuickSearch('');
-            setSlotQuickRestaurant('');
-            setSlotQuickPosition('');
-            setSlotQuickHotOnly(false);
-          }}
-          className="rounded-lg border bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"
-        >
-          Сбросить
-        </button>
-      </div>
+  const activeRestaurantsCount = restaurants.length;
+  const totalPendingApplications = applications.filter(
+    (application) => !application.status || application.status === 'pending'
+  ).length;
 
-      <div className="grid gap-3 md:grid-cols-4">
-        <FilterField label="Поиск">
-          <input
-            value={slotQuickSearch}
-            onChange={(e) => setSlotQuickSearch(e.target.value)}
-            placeholder="Ресторан, адрес, должность..."
-            className="w-full rounded-lg border p-3"
-          />
-        </FilterField>
+  const tabs = [
+    { id: 'applications' as const, label: 'Новые отклики', count: totalPendingApplications },
+    { id: 'open' as const, label: 'Активные слоты', count: openSlots.length },
+    { id: 'create' as const, label: slotForm.slot_id ? 'Редактировать слот' : 'Создать слот' },
+    { id: 'assigned' as const, label: 'Укомплектованные', count: assignedSlots.length },
+    { id: 'closed' as const, label: 'Закрытые', count: closedSlots.length },
+    { id: 'unrealized' as const, label: 'Прошедшие', count: unrealizedSlots.length },
+    ...(admin?.isGlobalAdmin
+      ? [
+          { id: 'restaurants' as const, label: 'Рестораны', count: restaurants.length },
+          { id: 'employees' as const, label: 'Сотрудники', count: employees.length },
+        ]
+      : []),
+    ...(admin?.canManageAccess
+      ? [{ id: 'access' as const, label: 'Доступы' }]
+      : []),
+  ];
 
-        <FilterField label="Ресторан">
-          <select
-            value={slotQuickRestaurant}
-            onChange={(e) => setSlotQuickRestaurant(e.target.value)}
-            className="w-full rounded-lg border p-3"
-          >
-            <option value="">Все</option>
-            {restaurantOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </FilterField>
+  const currentMinTime = slotForm.work_date === todayStr ? nowTimeStr : undefined;
+  const shiftMeta = getShiftMeta(slotForm.time_from, slotForm.time_to);
 
-        <FilterField label="Должность">
-          <select
-            value={slotQuickPosition}
-            onChange={(e) => setSlotQuickPosition(e.target.value)}
-            className="w-full rounded-lg border p-3"
-          >
-            <option value="">Все</option>
-            {slotPositionOptions.map((position) => (
-              <option key={position} value={position}>
-                {position}
-              </option>
-            ))}
-          </select>
-        </FilterField>
+  async function runAdminAction(action: string, payload: Record<string, unknown>) {
+    setSaving(true);
+    setError('');
+    setNotice('');
 
-        <FilterField label=" ">
-          <label className="flex h-full items-center gap-2 rounded-lg border p-3 text-sm text-gray-700">
-            <input
-              type="checkbox"
-              checked={slotQuickHotOnly}
-              onChange={(e) => setSlotQuickHotOnly(e.target.checked)}
-            />
-            Только горячие смены
-          </label>
-        </FilterField>
-      </div>
-    </div>
-  );
+    try {
+      await fetchAdminJson('/api/admin/actions', {
+        method: 'POST',
+        body: JSON.stringify({
+          action,
+          ...payload,
+        }),
+      });
 
-  const applicationFilters = (
-    <div className="rounded-2xl border bg-white p-4 shadow-sm">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <h3 className="font-semibold">Фильтры внутри вкладки</h3>
-        <button
-          type="button"
-          onClick={() => {
-            setApplicationQuickSearch('');
-            setApplicationQuickRole('');
-            setApplicationQuickRestaurant('');
-          }}
-          className="rounded-lg border bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"
-        >
-          Сбросить
-        </button>
-      </div>
+      setNotice('Изменения сохранены');
+      await load();
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Не удалось выполнить действие');
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }
 
-      <div className="grid gap-3 md:grid-cols-3">
-        <FilterField label="Поиск">
-          <input
-            value={applicationQuickSearch}
-            onChange={(e) => setApplicationQuickSearch(e.target.value)}
-            placeholder="ФИО, email, телефон, ресторан..."
-            className="w-full rounded-lg border p-3"
-          />
-        </FilterField>
+  async function handleSlotSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
 
-        <FilterField label="Роль">
-          <select
-            value={applicationQuickRole}
-            onChange={(e) => setApplicationQuickRole(e.target.value)}
-            className="w-full rounded-lg border p-3"
-          >
-            <option value="">Все</option>
-            {employeeRoleOptions.map((role) => (
-              <option key={role} value={role}>
-                {role}
-              </option>
-            ))}
-          </select>
-        </FilterField>
+    const success = await runAdminAction('saveSlot', slotForm);
 
-        <FilterField label="Ресторан">
-          <select
-            value={applicationQuickRestaurant}
-            onChange={(e) => setApplicationQuickRestaurant(e.target.value)}
-            className="w-full rounded-lg border p-3"
-          >
-            <option value="">Все</option>
-            {restaurantOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </FilterField>
-      </div>
-    </div>
-  );
+    if (success && !slotForm.slot_id) {
+      setSlotForm({
+        ...emptySlotForm,
+        restaurant_id: restaurants.length === 1 ? String(restaurants[0].id) : '',
+      });
+    }
+  }
 
-  const employeeFilters = (
-    <div className="rounded-2xl border bg-white p-4 shadow-sm">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <h3 className="font-semibold">Фильтры внутри вкладки</h3>
-        <button
-          type="button"
-          onClick={() => {
-            setEmployeeQuickSearch('');
-            setEmployeeQuickRole('');
-            setEmployeeQuickRestaurant('');
-            setEmployeeQuickStatus('all');
-          }}
-          className="rounded-lg border bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"
-        >
-          Сбросить
-        </button>
-      </div>
+  async function handleRestaurantSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
 
-      <div className="grid gap-3 md:grid-cols-4">
-        <FilterField label="Поиск">
-          <input
-            value={employeeQuickSearch}
-            onChange={(e) => setEmployeeQuickSearch(e.target.value)}
-            placeholder="ФИО, email, телефон..."
-            className="w-full rounded-lg border p-3"
-          />
-        </FilterField>
+    const success = await runAdminAction('saveRestaurant', restaurantForm);
 
-        <FilterField label="Статус">
-          <select
-            value={employeeQuickStatus}
-            onChange={(e) =>
-              setEmployeeQuickStatus(e.target.value as 'all' | 'active' | 'blocked')
-            }
-            className="w-full rounded-lg border p-3"
-          >
-            <option value="all">Все</option>
-            <option value="active">Только активные</option>
-            <option value="blocked">Только заблокированные</option>
-          </select>
-        </FilterField>
+    if (success) {
+      setRestaurantForm(emptyRestaurantForm);
+    }
+  }
 
-        <FilterField label="Роль">
-          <select
-            value={employeeQuickRole}
-            onChange={(e) => setEmployeeQuickRole(e.target.value)}
-            className="w-full rounded-lg border p-3"
-          >
-            <option value="">Все</option>
-            {employeeRoleOptions.map((role) => (
-              <option key={role} value={role}>
-                {role}
-              </option>
-            ))}
-          </select>
-        </FilterField>
+  async function handleApplicationReject(application: Application) {
+    const reason = applicationReasons[application.id]?.trim();
 
-        <FilterField label="Ресторан">
-          <select
-            value={employeeQuickRestaurant}
-            onChange={(e) => setEmployeeQuickRestaurant(e.target.value)}
-            className="w-full rounded-lg border p-3"
-          >
-            <option value="">Все</option>
-            {restaurantOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </FilterField>
-      </div>
-    </div>
-  );
+    if (!reason) {
+      setError('Укажите причину отклонения');
+      return;
+    }
 
-  const currentSlotsView =
-    tab === 'unrealized'
-      ? unrealizedSlotsView
-      : tab === 'closed'
-      ? closedSlotsView
-      : tab === 'assigned'
-      ? assignedSlotsView
-      : openSlotsView;
+    const success = await runAdminAction('rejectApplication', {
+      application_id: application.id,
+      rejection_reason: reason,
+    });
+
+    if (success) {
+      setApplicationReasons((current) => ({
+        ...current,
+        [application.id]: '',
+      }));
+    }
+  }
+
+  if (loading) {
+    return (
+      <main className="bg-[#fafafa] px-6 py-6">
+        <div className="mx-auto max-w-7xl rounded-2xl border bg-white p-6 shadow-sm">
+          Загрузка админки...
+        </div>
+      </main>
+    );
+  }
+
+  if (!admin || !data) {
+    return (
+      <main className="bg-[#fafafa] px-6 py-6">
+        <div className="mx-auto max-w-7xl rounded-2xl border bg-white p-6 shadow-sm">
+          <div className="rounded-xl bg-red-50 p-4 text-sm text-red-700">
+            {error || 'Не удалось загрузить админку'}
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   return (
-    <main className="min-h-screen bg-[#fafafa] p-6">
+    <main className="bg-[#fafafa] px-6 py-6">
       <div className="mx-auto max-w-7xl space-y-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold">Админка смен</h1>
-            <p className="mt-2 text-gray-600">
-              Управление слотами, откликами, ресторанами и сотрудниками
-            </p>
+        <section className="rounded-2xl border bg-white p-6 shadow-sm">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight text-gray-900">
+                Админка подработок
+              </h1>
+              <div className="mt-3 flex flex-wrap gap-2 text-sm text-gray-700">
+                <span className="rounded-full bg-red-50 px-3 py-1 text-red-700">
+                  {roleLabel(admin.canonicalRole)}
+                </span>
+                <span className="rounded-full bg-gray-100 px-3 py-1">
+                  {admin.email}
+                </span>
+                <span className="rounded-full bg-gray-100 px-3 py-1">
+                  Ресторанов в доступе: {activeRestaurantsCount}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <AdminRefreshButton />
+              <button
+                type="button"
+                onClick={() => void load()}
+                className="rounded-lg border px-4 py-3 text-sm text-gray-700 hover:bg-gray-50"
+              >
+                Обновить данные
+              </button>
+              {admin.canManageAccess && (
+                <Link
+                  href="/admin/telegram"
+                  className="rounded-lg border px-4 py-3 text-sm text-gray-700 hover:bg-gray-50"
+                >
+                  Telegram
+                </Link>
+              )}
+            </div>
           </div>
 
-          <AdminRefreshButton />
-        </div>
+          {!admin.isGlobalAdmin && activeRestaurantsCount === 0 && (
+            <div className="mt-5 rounded-xl bg-yellow-50 p-4 text-sm text-yellow-800">
+              У вашей роли пока нет назначенных ресторанов. Обратитесь к HR-админу или
+              superadmin, чтобы получить доступ к конкретным точкам.
+            </div>
+          )}
+        </section>
 
-        {pendingApplications.length > 0 && (
-          <div className="rounded-2xl border border-yellow-200 bg-yellow-50 p-4 text-yellow-800">
-            Новые отклики ждут решения: {pendingApplications.length}
-          </div>
+        {(notice || error) && (
+          <section className="space-y-3">
+            {notice && (
+              <div className="rounded-xl bg-green-50 p-4 text-sm text-green-700">
+                {notice}
+              </div>
+            )}
+            {error && (
+              <div className="rounded-xl bg-red-50 p-4 text-sm text-red-700">
+                {error}
+              </div>
+            )}
+          </section>
         )}
 
-        <div className="rounded-2xl border bg-white p-5 shadow-sm">
-          <form className="grid gap-4 md:grid-cols-5">
-            <input type="hidden" name="tab" value={tab} />
-
-            <FilterField label="Общий поиск">
+        <section className="rounded-2xl border bg-white p-4 shadow-sm">
+          <div className="grid gap-3 md:grid-cols-4">
+            <Field label="Поиск">
               <input
-                name="q"
-                defaultValue={q}
-                placeholder="Ресторан, сотрудник, слот..."
+                value={q}
+                onChange={(event) => setQ(event.target.value)}
+                placeholder="ФИО, ресторан, должность"
                 className="w-full rounded-lg border p-3"
               />
-            </FilterField>
+            </Field>
 
-            <FilterField label="Ресторан">
+            <Field label="Ресторан">
               <select
-                name="restaurant"
-                defaultValue={restaurantFilter}
+                value={restaurantFilter}
+                onChange={(event) => setRestaurantFilter(event.target.value)}
                 className="w-full rounded-lg border p-3"
               >
-                <option value="">Все</option>
-                {restaurantOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
+                <option value="">Все доступные</option>
+                {restaurants.map((restaurant) => (
+                  <option key={restaurant.id} value={restaurant.id}>
+                    {restaurant.name}
                   </option>
                 ))}
               </select>
-            </FilterField>
+            </Field>
 
-            <FilterField label="От">
+            <Field label="С даты">
               <input
                 type="date"
-                name="from"
-                defaultValue={from}
+                value={from}
+                onChange={(event) => setFrom(event.target.value)}
                 className="w-full rounded-lg border p-3"
               />
-            </FilterField>
+            </Field>
 
-            <FilterField label="До">
+            <Field label="По дату">
               <input
                 type="date"
-                name="to"
-                defaultValue={to}
+                value={to}
+                onChange={(event) => setTo(event.target.value)}
                 className="w-full rounded-lg border p-3"
               />
-            </FilterField>
+            </Field>
+          </div>
+        </section>
 
-            <div className="flex items-end gap-2">
-              <button
-                type="submit"
-                className="rounded-lg bg-red-500 px-4 py-3 text-white hover:bg-red-600"
-              >
-                Применить
-              </button>
+        <nav className="flex flex-wrap gap-2">
+          {tabs.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setTab(item.id)}
+              className={`rounded-full px-4 py-2 text-sm ${
+                tab === item.id
+                  ? 'bg-red-500 text-white'
+                  : 'bg-white text-gray-700 shadow-sm ring-1 ring-gray-200 hover:bg-gray-50'
+              }`}
+            >
+              {item.label}
+              {typeof item.count === 'number' ? ` · ${item.count}` : ''}
+            </button>
+          ))}
+        </nav>
 
-              <Link
-                href={`/admin?tab=${tab}`}
-                className="rounded-lg border px-4 py-3 text-gray-700 hover:bg-gray-50"
-              >
-                Сбросить
-              </Link>
-            </div>
-          </form>
-        </div>
+        {tab === 'applications' && (
+          <section className="space-y-4">
+            <SectionTitle
+              title="Новые отклики"
+              description="Показываются только отклики по ресторанам, доступным вашей роли."
+            />
 
-        <div className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
-          <div className="space-y-6">
-            <div className="rounded-2xl border bg-white p-5 shadow-sm">
-              <h2 className="mb-4 text-xl font-semibold">
-                {slotForm.slot_id ? 'Редактировать слот' : 'Новый слот'}
-              </h2>
+            {pendingApplications.length === 0 ? (
+              <EmptyState>Новых откликов по выбранным фильтрам нет.</EmptyState>
+            ) : (
+              pendingApplications.map((application) => {
+                const slot = slotMap.get(application.slot_id);
+                const restaurant = slot ? restaurantMap.get(slot.restaurant_id) : null;
 
-              <form action={saveSlot} className="space-y-4">
-                <input type="hidden" name="slot_id" value={slotForm.slot_id} />
-
-                <FilterField label="Ресторан">
-                  <select
-                    name="restaurant_id"
-                    value={slotForm.restaurant_id}
-                    onChange={(e) =>
-                      setSlotForm((prev) => ({ ...prev, restaurant_id: e.target.value }))
+                return (
+                  <ApplicationCard
+                    key={application.id}
+                    application={application}
+                    slot={slot}
+                    restaurant={restaurant}
+                    saving={saving}
+                    reason={applicationReasons[application.id] || ''}
+                    onReasonChange={(value) =>
+                      setApplicationReasons((current) => ({
+                        ...current,
+                        [application.id]: value,
+                      }))
                     }
-                    className="w-full rounded-lg border p-3"
-                  >
-                    <option value="">Выберите ресторан</option>
-                    {restaurantOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </FilterField>
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  <FilterField label="Дата">
-                    <input
-                      type="date"
-                      name="work_date"
-                      value={slotForm.work_date}
-                      min={todayStr}
-                      onChange={(e) =>
-                        setSlotForm((prev) => ({ ...prev, work_date: e.target.value }))
-                      }
-                      className="w-full rounded-lg border p-3"
-                    />
-                  </FilterField>
-
-                  <FilterField label="Должность">
-                    <input
-                      name="position"
-                      value={slotForm.position}
-                      onChange={(e) =>
-                        setSlotForm((prev) => ({ ...prev, position: e.target.value }))
-                      }
-                      className="w-full rounded-lg border p-3"
-                    />
-                  </FilterField>
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  <FilterField label="Начало">
-                    <input
-                      type="time"
-                      name="time_from"
-                      value={slotForm.time_from}
-                      min={currentMinTime}
-                      onChange={(e) =>
-                        setSlotForm((prev) => ({ ...prev, time_from: e.target.value }))
-                      }
-                      className="w-full rounded-lg border p-3"
-                    />
-                  </FilterField>
-
-                  <FilterField label="Окончание">
-                    <input
-                      type="time"
-                      name="time_to"
-                      value={slotForm.time_to}
-                      onChange={(e) =>
-                        setSlotForm((prev) => ({ ...prev, time_to: e.target.value }))
-                      }
-                      className="w-full rounded-lg border p-3"
-                    />
-                  </FilterField>
-                </div>
-
-                <FilterField label="Оплата в час, ₽ (необязательно)">
-                  <input
-                    type="number"
-                    min="0"
-                    step="1"
-                    name="hourly_rate"
-                    value={slotForm.hourly_rate}
-                    onChange={(e) =>
-                      setSlotForm((prev) => ({ ...prev, hourly_rate: e.target.value }))
+                    onApprove={() =>
+                      runAdminAction('approveApplication', {
+                        application_id: application.id,
+                      })
                     }
-                    placeholder="Можно оставить пустым"
-                    className="w-full rounded-lg border p-3"
+                    onReject={() => handleApplicationReject(application)}
                   />
-                </FilterField>
+                );
+              })
+            )}
+          </section>
+        )}
 
-                <FilterField label="Комментарий">
-                  <textarea
-                    name="comment"
-                    value={slotForm.comment}
-                    onChange={(e) =>
-                      setSlotForm((prev) => ({ ...prev, comment: e.target.value }))
-                    }
-                    rows={4}
-                    className="w-full rounded-lg border p-3"
-                  />
-                </FilterField>
+        {tab === 'open' && (
+          <SlotList
+            title="Активные слоты"
+            description="Открытые слоты остаются доступными сотрудникам, пока не набрано нужное количество людей."
+            slots={openSlots}
+            restaurants={restaurantMap}
+            applicationsBySlotId={applicationsBySlotId}
+            approvedApplicationsBySlotId={approvedApplicationsBySlotId}
+            saving={saving}
+            onEdit={(slot) => {
+              setSlotForm(buildSlotFormFromSlot(slot));
+              setTab('create');
+            }}
+            onClose={(slot) => runAdminAction('closeSlot', { slot_id: slot.id })}
+            onReopen={null}
+          />
+        )}
 
-                <div className="grid gap-3 md:grid-cols-2">
-                  <label className="flex items-center gap-2 rounded-lg border p-3 text-sm text-gray-700">
-                    <input
-                      type="checkbox"
-                      name="is_hot"
-                      checked={slotForm.is_hot}
-                      onChange={(e) =>
-                        setSlotForm((prev) => ({ ...prev, is_hot: e.target.checked }))
-                      }
-                    />
-                    Горячая смена
-                  </label>
+        {tab === 'create' && (
+          <section className="space-y-4">
+            <SectionTitle
+              title={slotForm.slot_id ? 'Редактировать слот' : 'Создать слот'}
+              description="Если ресторан один, он подставляется автоматически. Если ресторанов несколько, доступны только назначенные точки."
+            />
 
-                  <FilterField label="Статус">
+            <form
+              onSubmit={handleSlotSubmit}
+              className="rounded-2xl border bg-white p-6 shadow-sm"
+            >
+              <div className="grid gap-4 md:grid-cols-2">
+                <Field label="Ресторан">
+                  {restaurants.length === 1 ? (
+                    <div className="rounded-lg border bg-gray-50 p-3 text-gray-700">
+                      {restaurants[0].name}
+                    </div>
+                  ) : (
                     <select
-                      name="status"
-                      value={slotForm.status}
-                      onChange={(e) =>
-                        setSlotForm((prev) => ({ ...prev, status: e.target.value }))
+                      value={slotForm.restaurant_id}
+                      onChange={(event) =>
+                        setSlotForm((current) => ({
+                          ...current,
+                          restaurant_id: event.target.value,
+                        }))
                       }
+                      required
                       className="w-full rounded-lg border p-3"
                     >
-                      <option value="open">open</option>
-                      <option value="closed">closed</option>
-                      <option value="assigned">assigned</option>
+                      <option value="">Выберите ресторан</option>
+                      {restaurants.map((restaurant) => (
+                        <option key={restaurant.id} value={restaurant.id}>
+                          {restaurant.name}
+                        </option>
+                      ))}
                     </select>
-                  </FilterField>
+                  )}
+                </Field>
+
+                <Field label="Должность">
+                  <input
+                    value={slotForm.position}
+                    onChange={(event) =>
+                      setSlotForm((current) => ({
+                        ...current,
+                        position: event.target.value,
+                      }))
+                    }
+                    required
+                    className="w-full rounded-lg border p-3"
+                  />
+                </Field>
+
+                <Field label="Дата">
+                  <input
+                    type="date"
+                    value={slotForm.work_date}
+                    min={todayStr}
+                    onChange={(event) =>
+                      setSlotForm((current) => ({
+                        ...current,
+                        work_date: event.target.value,
+                      }))
+                    }
+                    required
+                    className="w-full rounded-lg border p-3"
+                  />
+                </Field>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="Начало">
+                    <input
+                      type="time"
+                      value={slotForm.time_from}
+                      min={currentMinTime}
+                      onChange={(event) =>
+                        setSlotForm((current) => ({
+                          ...current,
+                          time_from: event.target.value,
+                        }))
+                      }
+                      required
+                      className="w-full rounded-lg border p-3"
+                    />
+                  </Field>
+
+                  <Field label="Окончание">
+                    <input
+                      type="time"
+                      value={slotForm.time_to}
+                      onChange={(event) =>
+                        setSlotForm((current) => ({
+                          ...current,
+                          time_to: event.target.value,
+                        }))
+                      }
+                      required
+                      className="w-full rounded-lg border p-3"
+                    />
+                  </Field>
                 </div>
 
-                {(slotForm.time_from || slotForm.time_to) && (
-                  <div className="rounded-xl bg-gray-50 p-4 text-sm text-gray-700">
-                    Длительность смены: {formatHours(shiftMeta.hours)}
-                  </div>
-                )}
+                <Field label="Сколько человек нужно">
+                  <input
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={slotForm.needed_count}
+                    onChange={(event) =>
+                      setSlotForm((current) => ({
+                        ...current,
+                        needed_count: event.target.value,
+                      }))
+                    }
+                    className="w-full rounded-lg border p-3"
+                  />
+                </Field>
 
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="submit"
-                    className="rounded-lg bg-red-500 px-4 py-3 text-white hover:bg-red-600"
-                  >
-                    {slotForm.slot_id ? 'Сохранить изменения' : 'Создать слот'}
-                  </button>
+                <Field label="Оплата в час">
+                  <input
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={slotForm.hourly_rate}
+                    onChange={(event) =>
+                      setSlotForm((current) => ({
+                        ...current,
+                        hourly_rate: event.target.value,
+                      }))
+                    }
+                    className="w-full rounded-lg border p-3"
+                  />
+                </Field>
 
-                  <Link
-                    href="/admin"
-                    className="rounded-lg border px-4 py-3 text-gray-700 hover:bg-gray-50"
-                  >
-                    Сбросить форму
-                  </Link>
+                <label className="flex items-center gap-3 rounded-lg border p-3 text-sm text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={slotForm.is_hot}
+                    onChange={(event) =>
+                      setSlotForm((current) => ({
+                        ...current,
+                        is_hot: event.target.checked,
+                      }))
+                    }
+                  />
+                  Горячая смена
+                </label>
+              </div>
+
+              <Field label="Комментарий">
+                <textarea
+                  value={slotForm.comment}
+                  onChange={(event) =>
+                    setSlotForm((current) => ({
+                      ...current,
+                      comment: event.target.value,
+                    }))
+                  }
+                  rows={3}
+                  className="w-full rounded-lg border p-3"
+                />
+              </Field>
+
+              {slotForm.time_from && slotForm.time_to && (
+                <div className="mt-4 rounded-xl bg-gray-50 p-4 text-sm text-gray-700">
+                  Длительность: {formatHours(shiftMeta.hours)}
+                  {shiftMeta.overnight ? ' · смена заканчивается на следующий день' : ''}
                 </div>
-              </form>
-            </div>
+              )}
 
-            <div className="rounded-2xl border bg-white p-5 shadow-sm">
-              <h2 className="mb-4 text-xl font-semibold">Новый ресторан</h2>
-
-              <form action={saveRestaurant} className="space-y-4">
-                <FilterField label="Название">
-                  <input name="name" className="w-full rounded-lg border p-3" />
-                </FilterField>
-
-                <FilterField label="Адрес">
-                  <input name="address" className="w-full rounded-lg border p-3" />
-                </FilterField>
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  <FilterField label="Город">
-                    <input name="city" className="w-full rounded-lg border p-3" />
-                  </FilterField>
-
-                  <FilterField label="Метро">
-                    <input name="metro" className="w-full rounded-lg border p-3" />
-                  </FilterField>
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  <FilterField label="Широта">
-                    <input name="lat" className="w-full rounded-lg border p-3" />
-                  </FilterField>
-
-                  <FilterField label="Долгота">
-                    <input name="lng" className="w-full rounded-lg border p-3" />
-                  </FilterField>
-                </div>
-
+              <div className="mt-5 flex flex-wrap gap-3">
                 <button
                   type="submit"
-                  className="rounded-lg bg-red-500 px-4 py-3 text-white hover:bg-red-600"
+                  disabled={saving || restaurants.length === 0}
+                  className="rounded-lg bg-red-500 px-5 py-3 text-white hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  Сохранить ресторан
+                  {saving ? 'Сохраняю...' : slotForm.slot_id ? 'Сохранить слот' : 'Создать слот'}
                 </button>
-              </form>
-            </div>
-          </div>
 
-          <div className="space-y-6 min-w-0">
-            <div className="flex flex-wrap gap-2">
-              <Link
-                href={buildAdminHref({ tab: 'open', q, restaurantFilter, from, to })}
-                className={`rounded-full px-4 py-2 text-sm ${
-                  tab === 'open' ? 'bg-red-500 text-white' : 'bg-white text-gray-700 border'
-                }`}
+                {slotForm.slot_id && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSlotForm({
+                        ...emptySlotForm,
+                        restaurant_id:
+                          restaurants.length === 1 ? String(restaurants[0].id) : '',
+                      })
+                    }
+                    className="rounded-lg border px-5 py-3 text-gray-700 hover:bg-gray-50"
+                  >
+                    Новый слот
+                  </button>
+                )}
+              </div>
+            </form>
+          </section>
+        )}
+
+        {tab === 'assigned' && (
+          <SlotList
+            title="Укомплектованные слоты"
+            description="Слоты, где принято нужное количество сотрудников."
+            slots={assignedSlots}
+            restaurants={restaurantMap}
+            applicationsBySlotId={applicationsBySlotId}
+            approvedApplicationsBySlotId={approvedApplicationsBySlotId}
+            saving={saving}
+            onEdit={null}
+            onClose={null}
+            onReopen={null}
+          />
+        )}
+
+        {tab === 'closed' && (
+          <SlotList
+            title="Закрытые слоты"
+            description="Закрытые вручную слоты не показываются сотрудникам."
+            slots={closedSlots}
+            restaurants={restaurantMap}
+            applicationsBySlotId={applicationsBySlotId}
+            approvedApplicationsBySlotId={approvedApplicationsBySlotId}
+            saving={saving}
+            onEdit={null}
+            onClose={null}
+            onReopen={(slot) => runAdminAction('reopenSlotAsNew', { slot_id: slot.id })}
+          />
+        )}
+
+        {tab === 'unrealized' && (
+          <SlotList
+            title="Прошедшие слоты без полного набора"
+            description="Эти слоты остались открытыми, но дата и время уже прошли."
+            slots={unrealizedSlots}
+            restaurants={restaurantMap}
+            applicationsBySlotId={applicationsBySlotId}
+            approvedApplicationsBySlotId={approvedApplicationsBySlotId}
+            saving={saving}
+            onEdit={null}
+            onClose={(slot) => runAdminAction('closeSlot', { slot_id: slot.id })}
+            onReopen={(slot) => runAdminAction('reopenSlotAsNew', { slot_id: slot.id })}
+          />
+        )}
+
+        {tab === 'restaurants' && admin.isGlobalAdmin && (
+          <section className="space-y-4">
+            <SectionTitle
+              title="Рестораны"
+              description="Глобальные роли могут добавлять точки, чтобы затем назначать их ресторанным и территориальным админам."
+            />
+
+            <form
+              onSubmit={handleRestaurantSubmit}
+              className="rounded-2xl border bg-white p-6 shadow-sm"
+            >
+              <div className="grid gap-4 md:grid-cols-2">
+                <Field label="Название">
+                  <input
+                    value={restaurantForm.name}
+                    onChange={(event) =>
+                      setRestaurantForm((current) => ({
+                        ...current,
+                        name: event.target.value,
+                      }))
+                    }
+                    required
+                    className="w-full rounded-lg border p-3"
+                  />
+                </Field>
+
+                <Field label="Город">
+                  <input
+                    value={restaurantForm.city}
+                    onChange={(event) =>
+                      setRestaurantForm((current) => ({
+                        ...current,
+                        city: event.target.value,
+                      }))
+                    }
+                    required
+                    className="w-full rounded-lg border p-3"
+                  />
+                </Field>
+
+                <Field label="Адрес">
+                  <input
+                    value={restaurantForm.address}
+                    onChange={(event) =>
+                      setRestaurantForm((current) => ({
+                        ...current,
+                        address: event.target.value,
+                      }))
+                    }
+                    required
+                    className="w-full rounded-lg border p-3"
+                  />
+                </Field>
+
+                <Field label="Метро">
+                  <input
+                    value={restaurantForm.metro}
+                    onChange={(event) =>
+                      setRestaurantForm((current) => ({
+                        ...current,
+                        metro: event.target.value,
+                      }))
+                    }
+                    className="w-full rounded-lg border p-3"
+                  />
+                </Field>
+
+                <Field label="Широта">
+                  <input
+                    value={restaurantForm.lat}
+                    onChange={(event) =>
+                      setRestaurantForm((current) => ({
+                        ...current,
+                        lat: event.target.value,
+                      }))
+                    }
+                    className="w-full rounded-lg border p-3"
+                  />
+                </Field>
+
+                <Field label="Долгота">
+                  <input
+                    value={restaurantForm.lng}
+                    onChange={(event) =>
+                      setRestaurantForm((current) => ({
+                        ...current,
+                        lng: event.target.value,
+                      }))
+                    }
+                    className="w-full rounded-lg border p-3"
+                  />
+                </Field>
+              </div>
+
+              <button
+                type="submit"
+                disabled={saving}
+                className="mt-5 rounded-lg bg-red-500 px-5 py-3 text-white hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Открытые слоты · {openSlots.length}
-              </Link>
+                {saving ? 'Сохраняю...' : 'Добавить ресторан'}
+              </button>
+            </form>
 
-              <Link
-                href={buildAdminHref({ tab: 'unrealized', q, restaurantFilter, from, to })}
-                className={`rounded-full px-4 py-2 text-sm ${
-                  tab === 'unrealized'
-                    ? 'bg-red-500 text-white'
-                    : 'bg-white text-gray-700 border'
-                }`}
-              >
-                Нереализованные · {unrealizedSlots.length}
-              </Link>
-
-              <Link
-                href={buildAdminHref({ tab: 'applications', q, restaurantFilter, from, to })}
-                className={`rounded-full px-4 py-2 text-sm ${
-                  tab === 'applications'
-                    ? 'bg-red-500 text-white'
-                    : 'bg-white text-gray-700 border'
-                }`}
-              >
-                Отклики · {pendingApplications.length}
-              </Link>
-
-              <Link
-                href={buildAdminHref({ tab: 'assigned', q, restaurantFilter, from, to })}
-                className={`rounded-full px-4 py-2 text-sm ${
-                  tab === 'assigned' ? 'bg-red-500 text-white' : 'bg-white text-gray-700 border'
-                }`}
-              >
-                Назначенные · {assignedSlots.length}
-              </Link>
-
-              <Link
-                href={buildAdminHref({ tab: 'closed', q, restaurantFilter, from, to })}
-                className={`rounded-full px-4 py-2 text-sm ${
-                  tab === 'closed' ? 'bg-red-500 text-white' : 'bg-white text-gray-700 border'
-                }`}
-              >
-                Закрытые · {closedSlots.length}
-              </Link>
-
-              <Link
-                href={buildAdminHref({ tab: 'employees', q, restaurantFilter, from, to })}
-                className={`rounded-full px-4 py-2 text-sm ${
-                  tab === 'employees' ? 'bg-red-500 text-white' : 'bg-white text-gray-700 border'
-                }`}
-              >
-                Сотрудники · {employees.length}
-              </Link>
-            </div>
-
-            {(tab === 'open' || tab === 'unrealized' || tab === 'closed' || tab === 'assigned') &&
-              slotFilters}
-            {tab === 'applications' && applicationFilters}
-            {tab === 'employees' && employeeFilters}
-
-            {(tab === 'open' || tab === 'unrealized' || tab === 'closed' || tab === 'assigned') && (
-              <div className="space-y-4">
-                {currentSlotsView.length === 0 ? (
-                  <div className="rounded-2xl border bg-white p-6 text-gray-500 shadow-sm">
-                    По выбранным условиям ничего не найдено.
+            <div className="grid gap-3 md:grid-cols-2">
+              {restaurants.map((restaurant) => (
+                <div key={restaurant.id} className="rounded-xl border bg-white p-4">
+                  <div className="font-semibold text-gray-900">{restaurant.name}</div>
+                  <div className="mt-1 text-sm text-gray-600">
+                    {[restaurant.city, restaurant.address].filter(Boolean).join(' · ')}
                   </div>
-                ) : (
-                  currentSlotsView.map((slot) =>
-                    renderSlotCard(
-                      slot,
-                      <>
-                        <Link
-                          href={buildAdminHref({
-                            tab,
-                            q,
-                            restaurantFilter,
-                            from,
-                            to,
-                            edit: slot.id,
-                          })}
-                          className="rounded-lg border px-4 py-2 text-gray-700 hover:bg-gray-50"
+                  {restaurant.metro && (
+                    <div className="mt-2 text-sm text-gray-500">Метро: {restaurant.metro}</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {tab === 'employees' && admin.isGlobalAdmin && (
+          <section className="space-y-4">
+            <SectionTitle
+              title="Сотрудники"
+              description="Этот раздел доступен только глобальным ролям."
+            />
+
+            {employees.length === 0 ? (
+              <EmptyState>Сотрудников пока нет.</EmptyState>
+            ) : (
+              <div className="space-y-3">
+                {employees.map((employee) => {
+                  const homeRestaurant = restaurantMap.get(employee.home_restaurant_id);
+
+                  return (
+                    <div
+                      key={employee.user_id}
+                      className="rounded-2xl border bg-white p-5 shadow-sm"
+                    >
+                      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                        <div>
+                          <div className="font-semibold text-gray-900">
+                            {employee.full_name || employee.email}
+                          </div>
+                          <div className="mt-1 text-sm text-gray-600">
+                            {employee.email} · {employee.phone || 'телефон не указан'}
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-2 text-xs text-gray-700">
+                            <span className="rounded-full bg-gray-100 px-2 py-1">
+                              {employee.role || 'роль не указана'}
+                            </span>
+                            <span className="rounded-full bg-gray-100 px-2 py-1">
+                              {homeRestaurant?.name || 'домашний ресторан не найден'}
+                            </span>
+                            <span
+                              className={`rounded-full px-2 py-1 ${
+                                employee.is_blocked
+                                  ? 'bg-red-100 text-red-700'
+                                  : 'bg-green-100 text-green-700'
+                              }`}
+                            >
+                              {employee.is_blocked ? 'Заблокирован' : 'Активен'}
+                            </span>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          disabled={saving}
+                          onClick={() =>
+                            runAdminAction('toggleEmployeeBlock', {
+                              user_id: employee.user_id,
+                              next_blocked: !employee.is_blocked,
+                            })
+                          }
+                          className="rounded-lg border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                          Изменить
-                        </Link>
-
-                        {(tab === 'open' || tab === 'unrealized') && (
-                          <form action={closeSlot}>
-                            <input type="hidden" name="slot_id" value={slot.id} />
-                            <button
-                              type="submit"
-                              className="rounded-lg border px-4 py-2 text-gray-700 hover:bg-gray-50"
-                            >
-                              Закрыть
-                            </button>
-                          </form>
-                        )}
-
-                        {(tab === 'closed' || tab === 'unrealized') && (
-                          <form action={reopenSlotAsNew}>
-                            <input type="hidden" name="slot_id" value={slot.id} />
-                            <button
-                              type="submit"
-                              className="rounded-lg border px-4 py-2 text-gray-700 hover:bg-gray-50"
-                            >
-                              Возобновить как новую
-                            </button>
-                          </form>
-                        )}
-                      </>,
-                      tab === 'assigned' && approvedAppBySlotId[slot.id] ? (
-                        <div className="mt-3 rounded-xl bg-green-50 p-4 text-sm text-green-700">
-                          Назначен: {approvedAppBySlotId[slot.id].full_name}
-                          {approvedAppBySlotId[slot.id].employee_phone
-                            ? ` • ${approvedAppBySlotId[slot.id].employee_phone}`
-                            : ''}
-                        </div>
-                      ) : tab === 'unrealized' ? (
-                        <div className="mt-3 rounded-xl bg-yellow-50 p-4 text-sm text-yellow-800">
-                          Дата смены прошла, но слот не был реализован.
-                        </div>
-                      ) : null
-                    )
-                  )
-                )}
-              </div>
-            )}
-
-            {tab === 'applications' && (
-              <div className="space-y-4">
-                {pendingApplicationsView.length === 0 ? (
-                  <div className="rounded-2xl border bg-white p-6 text-gray-500 shadow-sm">
-                    Новых откликов нет.
-                  </div>
-                ) : (
-                  pendingApplicationsView.map((app) => {
-                    const slot = allSlots.find((item) => item.id === app.slot_id);
-                    const restaurant = slot ? getRestaurantById(slot.restaurant_id) : null;
-                    const shiftMeta =
-                      slot?.time_from && slot?.time_to
-                        ? getShiftMeta(slot.time_from, slot.time_to)
-                        : { hours: null, overnight: false };
-
-                    return (
-                      <div key={app.id} className="rounded-2xl border bg-white p-5 shadow-sm">
-                        <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-                          <div>
-                            <h3 className="text-lg font-semibold">{app.full_name}</h3>
-                            <p className="text-sm text-gray-600">
-                              {[app.employee_email, app.employee_phone, app.employee_role]
-                                .filter(Boolean)
-                                .join(' • ')}
-                            </p>
-                          </div>
-
-                          <span className="rounded-full bg-yellow-100 px-3 py-1 text-sm font-medium text-yellow-700">
-                            На рассмотрении
-                          </span>
-                        </div>
-
-                        <div className="grid gap-2 text-sm text-gray-700 md:grid-cols-2">
-                          <p>Домашний ресторан: {app.home_restaurant || '—'}</p>
-                          <p>Контакт: {app.contact || '—'}</p>
-                          <p>Рабочий ресторан: {restaurant?.name || '—'}</p>
-                          <p>Дата: {slot ? formatDateRu(slot.work_date) : '—'}</p>
-                          <p>
-                            Время:{' '}
-                            {slot
-                              ? formatShiftTimeRange(slot.time_from, slot.time_to, shiftMeta.overnight)
-                              : '—'}
-                          </p>
-                          <p>Должность: {slot?.position || '—'}</p>
-                        </div>
-
-                        <div className="mt-3 rounded-xl bg-gray-50 p-4 text-sm text-gray-700">
-                          {slot?.hourly_rate ? (
-                            <>
-                              Оплата: {slot.hourly_rate} ₽/час
-                              <br />
-                            </>
-                          ) : null}
-                          Длительность: {formatHours(shiftMeta.hours)}
-                        </div>
-
-                        {app.comment && (
-                          <div className="mt-3 rounded-xl bg-gray-50 p-4 text-sm text-gray-700">
-                            Комментарий: {app.comment}
-                          </div>
-                        )}
-
-                        <p className="mt-2 text-xs text-gray-500">
-                          Отклик отправлен: {formatDateTime(app.created_at)}
-                        </p>
-
-                        <div className="mt-4 flex flex-wrap gap-3">
-                          <form action={approveApplication}>
-                            <input type="hidden" name="application_id" value={app.id} />
-                            <input type="hidden" name="slot_id" value={app.slot_id} />
-                            <button
-                              type="submit"
-                              className="rounded-lg bg-green-600 px-4 py-2 text-white hover:bg-green-700"
-                            >
-                              Подтвердить
-                            </button>
-                          </form>
-
-                          <form action={rejectApplication} className="flex flex-wrap gap-2">
-                            <input type="hidden" name="application_id" value={app.id} />
-                            <input type="hidden" name="slot_id" value={app.slot_id} />
-                            <input
-                              name="rejection_reason"
-                              placeholder="Причина отказа"
-                              className="rounded-lg border p-2"
-                            />
-                            <button
-                              type="submit"
-                              className="rounded-lg border px-4 py-2 text-gray-700 hover:bg-gray-50"
-                            >
-                              Отклонить
-                            </button>
-                          </form>
-                        </div>
+                          {employee.is_blocked ? 'Разблокировать' : 'Заблокировать'}
+                        </button>
                       </div>
-                    );
-                  })
-                )}
+                    </div>
+                  );
+                })}
               </div>
             )}
+          </section>
+        )}
 
-            {tab === 'employees' && (
-              <div className="space-y-4">
-                {employeesView.length === 0 ? (
-                  <div className="rounded-2xl border bg-white p-6 text-gray-500 shadow-sm">
-                    Сотрудники не найдены.
-                  </div>
-                ) : (
-                  employeesView.map((employee) => {
-                    const restaurant = getRestaurantById(employee.home_restaurant_id);
-
-                    return (
-                      <div key={employee.user_id} className="rounded-2xl border bg-white p-5 shadow-sm">
-                        <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-                          <div>
-                            <h3 className="text-lg font-semibold">{employee.full_name}</h3>
-                            <p className="text-sm text-gray-600">
-                              {[employee.email, employee.phone, employee.role]
-                                .filter(Boolean)
-                                .join(' • ')}
-                            </p>
-                          </div>
-
-                          <span
-                            className={`rounded-full px-3 py-1 text-sm font-medium ${
-                              employee.is_blocked
-                                ? 'bg-red-100 text-red-700'
-                                : 'bg-green-100 text-green-700'
-                            }`}
-                          >
-                            {employee.is_blocked ? 'Заблокирован' : 'Активен'}
-                          </span>
-                        </div>
-
-                        <div className="grid gap-2 text-sm text-gray-700 md:grid-cols-2">
-                          <p>Домашний ресторан: {restaurant?.name || '—'}</p>
-                          <p>Создан: {formatDateTime(employee.created_at)}</p>
-                        </div>
-
-                        <div className="mt-4">
-                          <form action={toggleEmployeeBlock}>
-                            <input type="hidden" name="user_id" value={employee.user_id} />
-                            <input
-                              type="hidden"
-                              name="next_blocked"
-                              value={employee.is_blocked ? 'false' : 'true'}
-                            />
-                            <button
-                              type="submit"
-                              className="rounded-lg border px-4 py-2 text-gray-700 hover:bg-gray-50"
-                            >
-                              {employee.is_blocked ? 'Разблокировать' : 'Заблокировать'}
-                            </button>
-                          </form>
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            )}
-          </div>
-        </div>
+        {tab === 'access' && admin.canManageAccess && <AdminAccessManager />}
       </div>
     </main>
+  );
+}
+
+function SectionTitle({
+  title,
+  description,
+}: {
+  title: string;
+  description?: string;
+}) {
+  return (
+    <section className="rounded-2xl border bg-white p-6 shadow-sm">
+      <h2 className="text-2xl font-semibold text-gray-900">{title}</h2>
+      {description && <p className="mt-2 text-sm text-gray-600">{description}</p>}
+    </section>
+  );
+}
+
+function SlotList({
+  title,
+  description,
+  slots,
+  restaurants,
+  applicationsBySlotId,
+  approvedApplicationsBySlotId,
+  saving,
+  onEdit,
+  onClose,
+  onReopen,
+}: {
+  title: string;
+  description: string;
+  slots: Slot[];
+  restaurants: Map<number, Restaurant>;
+  applicationsBySlotId: Map<number, Application[]>;
+  approvedApplicationsBySlotId: Map<number, Application[]>;
+  saving: boolean;
+  onEdit: ((slot: Slot) => void) | null;
+  onClose: ((slot: Slot) => void) | null;
+  onReopen: ((slot: Slot) => void) | null;
+}) {
+  return (
+    <section className="space-y-4">
+      <SectionTitle title={title} description={description} />
+
+      {slots.length === 0 ? (
+        <EmptyState>По выбранным фильтрам ничего нет.</EmptyState>
+      ) : (
+        slots.map((slot) => (
+          <SlotCard
+            key={slot.id}
+            slot={slot}
+            restaurant={restaurants.get(slot.restaurant_id) || null}
+            applications={applicationsBySlotId.get(slot.id) || []}
+            approvedApplications={approvedApplicationsBySlotId.get(slot.id) || []}
+            saving={saving}
+            onEdit={onEdit}
+            onClose={onClose}
+            onReopen={onReopen}
+          />
+        ))
+      )}
+    </section>
+  );
+}
+
+function SlotCard({
+  slot,
+  restaurant,
+  applications,
+  approvedApplications,
+  saving,
+  onEdit,
+  onClose,
+  onReopen,
+}: {
+  slot: Slot;
+  restaurant: Restaurant | null;
+  applications: Application[];
+  approvedApplications: Application[];
+  saving: boolean;
+  onEdit: ((slot: Slot) => void) | null;
+  onClose: ((slot: Slot) => void) | null;
+  onReopen: ((slot: Slot) => void) | null;
+}) {
+  const meta = getShiftMeta(slot.time_from, slot.time_to);
+  const pendingCount = applications.filter(
+    (application) => !application.status || application.status === 'pending'
+  ).length;
+
+  return (
+    <article className="rounded-2xl border bg-white p-5 shadow-sm">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div className="mb-2 flex flex-wrap gap-2 text-xs">
+            <span className="rounded-full bg-gray-100 px-2 py-1 text-gray-700">
+              {slotStatusLabel(slot)}
+            </span>
+            {slot.is_hot && (
+              <span className="rounded-full bg-red-100 px-2 py-1 text-red-700">
+                Горячая смена
+              </span>
+            )}
+            <span className="rounded-full bg-blue-50 px-2 py-1 text-blue-700">
+              Принято {getAcceptedCount(slot)} из {getNeededCount(slot)}
+            </span>
+            {getRemainingCount(slot) > 0 && (
+              <span className="rounded-full bg-yellow-50 px-2 py-1 text-yellow-800">
+                Осталось {getRemainingCount(slot)}
+              </span>
+            )}
+            {pendingCount > 0 && (
+              <span className="rounded-full bg-orange-50 px-2 py-1 text-orange-700">
+                Новых откликов: {pendingCount}
+              </span>
+            )}
+          </div>
+
+          <h3 className="text-lg font-semibold text-gray-900">{slot.position}</h3>
+          <div className="mt-1 text-sm text-gray-600">
+            {restaurant?.name || 'Ресторан не найден'} · {formatDateRu(slot.work_date)} ·{' '}
+            {formatShiftTimeRange(slot.time_from, slot.time_to, meta.overnight)}
+          </div>
+          <div className="mt-1 text-sm text-gray-600">
+            {formatHours(meta.hours)} · {formatMoney(slot.hourly_rate)}
+          </div>
+          {slot.comment && <div className="mt-3 text-sm text-gray-700">{slot.comment}</div>}
+
+          {approvedApplications.length > 0 && (
+            <div className="mt-4 rounded-xl bg-green-50 p-3 text-sm text-green-800">
+              <div className="mb-1 font-medium">Принятые сотрудники</div>
+              <div className="space-y-1">
+                {approvedApplications.map((application) => (
+                  <div key={application.id}>
+                    {application.full_name} · {application.employee_phone || application.contact}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-wrap gap-2 lg:justify-end">
+          {onEdit && (
+            <button
+              type="button"
+              onClick={() => onEdit(slot)}
+              className="rounded-lg border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            >
+              Редактировать
+            </button>
+          )}
+          {onClose && (
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => onClose(slot)}
+              className="rounded-lg border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Закрыть
+            </button>
+          )}
+          {onReopen && (
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => onReopen(slot)}
+              className="rounded-lg bg-red-500 px-4 py-2 text-sm text-white hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Повторить как новый
+            </button>
+          )}
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function ApplicationCard({
+  application,
+  slot,
+  restaurant,
+  saving,
+  reason,
+  onReasonChange,
+  onApprove,
+  onReject,
+}: {
+  application: Application;
+  slot?: Slot | null;
+  restaurant?: Restaurant | null;
+  saving: boolean;
+  reason: string;
+  onReasonChange: (value: string) => void;
+  onApprove: () => void;
+  onReject: () => void;
+}) {
+  const meta = slot ? getShiftMeta(slot.time_from, slot.time_to) : null;
+
+  return (
+    <article className="rounded-2xl border bg-white p-5 shadow-sm">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div className="mb-2 flex flex-wrap gap-2 text-xs">
+            <span className="rounded-full bg-orange-50 px-2 py-1 text-orange-700">
+              {applicationStatusLabel(application.status)}
+            </span>
+            <span className="rounded-full bg-gray-100 px-2 py-1 text-gray-700">
+              Отклик #{application.id}
+            </span>
+            <span className="rounded-full bg-gray-100 px-2 py-1 text-gray-700">
+              {formatDateTime(application.created_at)}
+            </span>
+          </div>
+
+          <h3 className="text-lg font-semibold text-gray-900">{application.full_name}</h3>
+          <div className="mt-1 text-sm text-gray-600">
+            {application.employee_phone || application.contact || 'телефон не указан'}
+            {application.employee_email ? ` · ${application.employee_email}` : ''}
+          </div>
+          <div className="mt-1 text-sm text-gray-600">
+            {application.employee_role || 'роль не указана'}
+          </div>
+
+          {slot && (
+            <div className="mt-4 rounded-xl bg-gray-50 p-3 text-sm text-gray-700">
+              <div className="font-medium text-gray-900">
+                {restaurant?.name || 'Ресторан не найден'} · {slot.position}
+              </div>
+              <div className="mt-1">
+                {formatDateRu(slot.work_date)} ·{' '}
+                {formatShiftTimeRange(slot.time_from, slot.time_to, Boolean(meta?.overnight))}
+                {meta ? ` · ${formatHours(meta.hours)}` : ''}
+              </div>
+              <div className="mt-1">
+                Принято {getAcceptedCount(slot)} из {getNeededCount(slot)}, осталось{' '}
+                {getRemainingCount(slot)}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="w-full max-w-md space-y-3">
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={saving}
+              onClick={onApprove}
+              className="rounded-lg bg-green-600 px-4 py-2 text-sm text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Принять
+            </button>
+            <button
+              type="button"
+              disabled={saving}
+              onClick={onReject}
+              className="rounded-lg border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Отклонить
+            </button>
+          </div>
+
+          <input
+            value={reason}
+            onChange={(event) => onReasonChange(event.target.value)}
+            placeholder="Причина отклонения"
+            className="w-full rounded-lg border p-3 text-sm"
+          />
+        </div>
+      </div>
+    </article>
   );
 }

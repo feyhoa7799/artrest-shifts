@@ -5,14 +5,40 @@ import { useEffect, useState } from 'react';
 
 import { supabase } from '@/lib/supabase';
 
+type AdminRole =
+  | 'admin'
+  | 'superadmin'
+  | 'hr_admin'
+  | 'territory_admin'
+  | 'restaurant_admin';
+
+type CanonicalAdminRole =
+  | 'superadmin'
+  | 'hr_admin'
+  | 'territory_admin'
+  | 'restaurant_admin';
+
+type RestaurantOption = {
+  id: number;
+  name: string;
+};
+
+type AdminRestaurantAccess = {
+  id: number;
+  restaurant_id: number;
+  restaurant_name: string;
+};
+
 type AdminItem = {
   id: number;
   email: string;
-  role: 'admin' | 'superadmin';
+  role: AdminRole;
+  canonicalRole: CanonicalAdminRole;
   is_active: boolean;
   created_at: string;
   updated_at: string;
   source?: 'db' | 'env';
+  restaurantAccess: AdminRestaurantAccess[];
 };
 
 type AuditItem = {
@@ -21,18 +47,20 @@ type AuditItem = {
   actor_email: string;
   target_email: string;
   action: 'grant' | 'revoke';
-  assigned_role: 'admin' | 'superadmin' | null;
+  assigned_role: AdminRole | null;
   created_at: string;
 };
 
 type AccessResponse = {
   items: AdminItem[];
   audit: AuditItem[];
+  restaurants: RestaurantOption[];
   configuredSuperadminEmail: string | null;
 };
 
 type MeResponse = {
-  isSuperadmin: boolean;
+  canManageSuperadmins: boolean;
+  canonicalRole: CanonicalAdminRole;
 };
 
 async function getAccessToken() {
@@ -82,61 +110,70 @@ function formatDateTime(value: string) {
   }).format(date);
 }
 
-function formatRole(role: 'admin' | 'superadmin') {
-  return role === 'superadmin' ? 'Суперюзер' : 'Администратор';
-}
+function formatRole(role: CanonicalAdminRole) {
+  const labels: Record<CanonicalAdminRole, string> = {
+    superadmin: 'Суперадмин',
+    hr_admin: 'HR-админ',
+    territory_admin: 'Территориальный админ',
+    restaurant_admin: 'Админ ресторана',
+  };
 
-function formatAssignedRole(role: 'admin' | 'superadmin' | null) {
-  if (role === 'superadmin') return 'superadmin';
-  if (role === 'admin') return 'admin';
-  return '—';
+  return labels[role];
 }
 
 function formatAction(action: 'grant' | 'revoke') {
   return action === 'grant' ? 'Выдача доступа' : 'Отзыв доступа';
 }
 
+function formatAssignedRole(role: AdminRole | null) {
+  if (!role) return '—';
+  if (role === 'admin') return 'HR-админ (legacy)';
+  return formatRole(role);
+}
+
 export default function AdminAccessManager() {
   const [loading, setLoading] = useState(true);
   const [allowed, setAllowed] = useState(false);
+  const [canManageSuperadmins, setCanManageSuperadmins] = useState(false);
 
   const [items, setItems] = useState<AdminItem[]>([]);
   const [audit, setAudit] = useState<AuditItem[]>([]);
+  const [restaurants, setRestaurants] = useState<RestaurantOption[]>([]);
   const [configuredSuperadminEmail, setConfiguredSuperadminEmail] = useState<string | null>(
     null
   );
 
   const [email, setEmail] = useState('');
+  const [role, setRole] = useState<CanonicalAdminRole>('restaurant_admin');
+  const [restaurantIds, setRestaurantIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
 
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
+
+  const needsRestaurants = role === 'restaurant_admin' || role === 'territory_admin';
 
   async function load() {
     setLoading(true);
     setError('');
 
     try {
-      const me = await fetchJson<MeResponse>('/api/admin/me');
-
-      if (!me.isSuperadmin) {
-        setAllowed(false);
-        setItems([]);
-        setAudit([]);
-        setConfiguredSuperadminEmail(null);
-        return;
-      }
-
-      const data = await fetchJson<AccessResponse>('/api/admin/access');
+      const [me, data] = await Promise.all([
+        fetchJson<MeResponse>('/api/admin/me'),
+        fetchJson<AccessResponse>('/api/admin/access'),
+      ]);
 
       setAllowed(true);
+      setCanManageSuperadmins(Boolean(me.canManageSuperadmins));
       setItems(data.items || []);
       setAudit(data.audit || []);
+      setRestaurants(data.restaurants || []);
       setConfiguredSuperadminEmail(data.configuredSuperadminEmail || null);
     } catch (err) {
       setAllowed(false);
       setItems([]);
       setAudit([]);
+      setRestaurants([]);
       setConfiguredSuperadminEmail(null);
       setError(
         err instanceof Error ? err.message : 'Ошибка загрузки администраторов'
@@ -159,6 +196,11 @@ export default function AdminAccessManager() {
       return;
     }
 
+    if (needsRestaurants && restaurantIds.length === 0) {
+      setError('Выберите хотя бы один ресторан');
+      return;
+    }
+
     setSaving(true);
 
     try {
@@ -169,15 +211,19 @@ export default function AdminAccessManager() {
           body: JSON.stringify({
             action: 'grant',
             email: email.trim(),
+            role,
+            restaurantIds: needsRestaurants ? restaurantIds.map(Number) : [],
           }),
         }
       );
 
       setItems(data.items || []);
       setAudit(data.audit || []);
+      setRestaurants(data.restaurants || []);
       setConfiguredSuperadminEmail(data.configuredSuperadminEmail || null);
       setEmail('');
-      setNotice('Доступ администратора выдан');
+      setRestaurantIds([]);
+      setNotice('Доступ сохранён');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка выдачи доступа');
     } finally {
@@ -188,7 +234,6 @@ export default function AdminAccessManager() {
   async function handleRevoke(targetEmail: string) {
     setError('');
     setNotice('');
-
     setSaving(true);
 
     try {
@@ -205,8 +250,9 @@ export default function AdminAccessManager() {
 
       setItems(data.items || []);
       setAudit(data.audit || []);
+      setRestaurants(data.restaurants || []);
       setConfiguredSuperadminEmail(data.configuredSuperadminEmail || null);
-      setNotice('Доступ администратора отозван');
+      setNotice('Доступ отозван');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка отзыва доступа');
     } finally {
@@ -235,10 +281,10 @@ export default function AdminAccessManager() {
       <section className="rounded-2xl border bg-white p-6 shadow-sm">
         <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="mb-2 text-2xl font-semibold">Управление администраторами</h2>
-            <p className="text-sm text-gray-600">
-              Этот блок виден только суперюзеру. Здесь можно выдавать и отзывать доступ
-              к админке.
+            <h2 className="text-2xl font-semibold">Управление доступами</h2>
+            <p className="mt-2 text-sm text-gray-600">
+              Здесь выдаются роли и ресторанные привязки. HR-админ не может выдавать
+              или отзывать superadmin-доступ.
             </p>
           </div>
 
@@ -246,13 +292,13 @@ export default function AdminAccessManager() {
             href="/admin/telegram"
             className="rounded-lg border px-4 py-3 text-sm text-gray-700 hover:bg-gray-50"
           >
-            Telegram-уведомления
+            Telegram
           </Link>
         </div>
 
         {configuredSuperadminEmail && (
           <div className="mb-4 rounded-xl bg-gray-50 p-4 text-sm text-gray-700">
-            Суперюзер из конфигурации: <b>{configuredSuperadminEmail}</b>
+            Суперадмин из конфигурации: <b>{configuredSuperadminEmail}</b>
           </div>
         )}
 
@@ -268,13 +314,51 @@ export default function AdminAccessManager() {
           </div>
         )}
 
-        <div className="mb-6 flex flex-col gap-3 md:flex-row">
+        <div className="grid gap-4 lg:grid-cols-[1fr_220px_1.2fr_auto]">
           <input
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="Введите email сотрудника"
+            onChange={(event) => setEmail(event.target.value)}
+            placeholder="Email администратора"
             className="w-full rounded-lg border p-3"
           />
+
+          <select
+            value={role}
+            onChange={(event) => {
+              const nextRole = event.target.value as CanonicalAdminRole;
+              setRole(nextRole);
+              if (nextRole === 'hr_admin' || nextRole === 'superadmin') {
+                setRestaurantIds([]);
+              }
+            }}
+            className="w-full rounded-lg border p-3"
+          >
+            <option value="restaurant_admin">Админ ресторана</option>
+            <option value="territory_admin">Территориальный админ</option>
+            <option value="hr_admin">HR-админ</option>
+            {canManageSuperadmins && <option value="superadmin">Суперадмин</option>}
+          </select>
+
+          <select
+            multiple
+            size={5}
+            value={restaurantIds}
+            disabled={!needsRestaurants}
+            onChange={(event) =>
+              setRestaurantIds(
+                Array.from(event.currentTarget.selectedOptions).map(
+                  (option) => option.value
+                )
+              )
+            }
+            className="w-full rounded-lg border p-3 disabled:bg-gray-50 disabled:text-gray-400"
+          >
+            {restaurants.map((restaurant) => (
+              <option key={restaurant.id} value={restaurant.id}>
+                {restaurant.name}
+              </option>
+            ))}
+          </select>
 
           <button
             type="button"
@@ -282,9 +366,13 @@ export default function AdminAccessManager() {
             disabled={saving}
             className="rounded-lg bg-red-500 px-4 py-3 text-white hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {saving ? 'Сохраняю...' : 'Выдать доступ'}
+            {saving ? 'Сохраняю...' : 'Сохранить'}
           </button>
         </div>
+      </section>
+
+      <section className="rounded-2xl border bg-white p-6 shadow-sm">
+        <h3 className="mb-4 text-xl font-semibold">Активные администраторы</h3>
 
         {items.length === 0 ? (
           <div className="rounded-xl bg-gray-50 p-4 text-sm text-gray-700">
@@ -293,8 +381,10 @@ export default function AdminAccessManager() {
         ) : (
           <div className="space-y-3">
             {items.map((item) => {
-              const isSuperadmin = item.role === 'superadmin';
               const isEnvSource = item.source === 'env';
+              const canRevoke =
+                !isEnvSource &&
+                (item.canonicalRole !== 'superadmin' || canManageSuperadmins);
 
               return (
                 <div
@@ -304,14 +394,16 @@ export default function AdminAccessManager() {
                   <div>
                     <div className="font-medium text-gray-900">{item.email}</div>
 
-                    <div className="mt-1 flex flex-wrap gap-2 text-xs text-gray-600">
+                    <div className="mt-2 flex flex-wrap gap-2 text-xs text-gray-600">
                       <span className="rounded-full bg-gray-100 px-2 py-1">
-                        {formatRole(item.role)}
+                        {formatRole(item.canonicalRole)}
                       </span>
 
-                      <span className="rounded-full bg-gray-100 px-2 py-1">
-                        {isSuperadmin ? 'superadmin' : 'admin'}
-                      </span>
+                      {item.role === 'admin' && (
+                        <span className="rounded-full bg-yellow-100 px-2 py-1 text-yellow-800">
+                          legacy admin
+                        </span>
+                      )}
 
                       {isEnvSource && (
                         <span className="rounded-full bg-yellow-100 px-2 py-1 text-yellow-800">
@@ -323,16 +415,29 @@ export default function AdminAccessManager() {
                         Обновлён: {formatDateTime(item.updated_at)}
                       </span>
                     </div>
+
+                    {item.restaurantAccess.length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-2 text-xs text-gray-700">
+                        {item.restaurantAccess.map((access) => (
+                          <span
+                            key={access.id}
+                            className="rounded-full bg-red-50 px-2 py-1 text-red-700"
+                          >
+                            {access.restaurant_name}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
-                  {!isSuperadmin && (
+                  {canRevoke && (
                     <button
                       type="button"
                       onClick={() => handleRevoke(item.email)}
                       disabled={saving}
                       className="rounded-lg border px-4 py-2 text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      Отозвать доступ
+                      Отозвать
                     </button>
                   )}
                 </div>
@@ -344,21 +449,15 @@ export default function AdminAccessManager() {
 
       <section className="rounded-2xl border bg-white p-6 shadow-sm">
         <h3 className="mb-2 text-xl font-semibold">История изменений доступа</h3>
-        <p className="mb-5 text-sm text-gray-600">
-          Последние действия по выдаче и отзыву прав администратора.
-        </p>
 
         {audit.length === 0 ? (
           <div className="rounded-xl bg-gray-50 p-4 text-sm text-gray-700">
-            История пока пуста.
+            История пока пустая.
           </div>
         ) : (
           <div className="space-y-3">
             {audit.map((item) => (
-              <div
-                key={item.id}
-                className="rounded-xl border p-4"
-              >
+              <div key={item.id} className="rounded-xl border p-4">
                 <div className="mb-2 flex flex-wrap items-center gap-2 text-sm">
                   <span className="rounded-full bg-gray-100 px-2 py-1 text-gray-700">
                     {formatAction(item.action)}

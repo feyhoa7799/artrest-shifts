@@ -29,10 +29,6 @@ type EmployeeProfileRow = {
   home_restaurant_id: number;
 };
 
-type NotificationSettingsRow = {
-  application_notification_email: string | null;
-};
-
 type NotifyInput = {
   applicationId: number;
   slot: SlotRow;
@@ -73,22 +69,78 @@ function formatMoney(value: number | null | undefined) {
   return `${value} ₽/час`;
 }
 
-async function getNotificationEmail() {
-  const { data, error } = await supabaseAdmin
-    .from('app_settings')
-    .select('application_notification_email')
-    .eq('id', 1)
-    .maybeSingle();
+async function getRestaurantAdminEmails(restaurantId: number) {
+  const { data: accessRows, error: accessError } = await supabaseAdmin
+    .from('admin_restaurant_access')
+    .select('admin_user_id, admin_email')
+    .eq('restaurant_id', restaurantId)
+    .eq('is_active', true);
 
-  if (error) {
-    console.error('Application notification settings read failed:', error.message);
-    return null;
+  if (accessError) {
+    console.error('Application notification access read failed:', accessError.message);
+    return [];
   }
 
-  const settings = data as NotificationSettingsRow | null;
-  const email = settings?.application_notification_email?.trim();
+  const rows = (accessRows || []) as {
+    admin_user_id: number | null;
+    admin_email: string | null;
+  }[];
 
-  return email || null;
+  const adminUserIds = [
+    ...new Set(
+      rows
+        .map((row) => row.admin_user_id)
+        .filter((value): value is number => Boolean(value))
+    ),
+  ];
+  const rowEmails = [
+    ...new Set(
+      rows
+        .map((row) => row.admin_email?.trim().toLowerCase())
+        .filter((value): value is string => Boolean(value))
+    ),
+  ];
+  const emails = new Set<string>();
+
+  if (adminUserIds.length > 0) {
+    const { data, error } = await supabaseAdmin
+      .from('admin_users')
+      .select('email, role')
+      .in('id', adminUserIds)
+      .eq('is_active', true)
+      .in('role', ['restaurant_admin', 'territory_admin']);
+
+    if (error) {
+      console.error('Application notification admin user read failed:', error.message);
+    } else {
+      ((data || []) as { email: string; role: string }[]).forEach((admin) => {
+        const email = admin.email?.trim().toLowerCase();
+
+        if (email) emails.add(email);
+      });
+    }
+  }
+
+  if (rowEmails.length > 0) {
+    const { data, error } = await supabaseAdmin
+      .from('admin_users')
+      .select('email, role')
+      .in('email', rowEmails)
+      .eq('is_active', true)
+      .in('role', ['restaurant_admin', 'territory_admin']);
+
+    if (error) {
+      console.error('Application notification admin email read failed:', error.message);
+    } else {
+      ((data || []) as { email: string; role: string }[]).forEach((admin) => {
+        const email = admin.email?.trim().toLowerCase();
+
+        if (email) emails.add(email);
+      });
+    }
+  }
+
+  return [...emails];
 }
 
 async function getRestaurant(id: number) {
@@ -234,10 +286,13 @@ function buildHtml(params: {
 
 export async function notifyAboutNewApplication(input: NotifyInput) {
   try {
-    const recipient = await getNotificationEmail();
+    const recipients = await getRestaurantAdminEmails(input.slot.restaurant_id);
 
-    if (!recipient) {
-      return { sent: false, reason: 'Email для уведомлений не указан' };
+    if (recipients.length === 0) {
+      return {
+        sent: false,
+        reason: `Для ресторана #${input.slot.restaurant_id} нет активных администраторов для email-уведомлений`,
+      };
     }
 
     const [restaurant, homeRestaurantName] = await Promise.all([
@@ -248,7 +303,7 @@ export async function notifyAboutNewApplication(input: NotifyInput) {
     const adminUrl = getAdminApplicationUrl(input.applicationId);
 
     return sendMail({
-      to: recipient,
+      to: recipients.join(', '),
       subject: `У вас новый отклик на слот #${input.applicationId}`,
       text: buildPlainText({
         applicationId: input.applicationId,

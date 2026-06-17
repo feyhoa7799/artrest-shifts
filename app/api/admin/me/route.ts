@@ -1,32 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/supabase-admin';
-import { getAdminAccessByEmail } from '@/lib/admin-access';
+import { getCurrentAdminContext, jsonError } from '@/lib/admin-api-auth';
 
 export async function GET(req: NextRequest) {
   try {
-    const authHeader = req.headers.get('authorization');
-    const token = authHeader?.replace('Bearer ', '').trim();
-
-    if (!token) {
-      return NextResponse.json({ error: 'Нет авторизации' }, { status: 401 });
-    }
-
-    const { data: userData, error } = await supabaseAdmin.auth.getUser(token);
-
-    if (error || !userData.user) {
-      return NextResponse.json({ error: 'Нет авторизации' }, { status: 401 });
-    }
-
-    const user = userData.user;
-    const access = await getAdminAccessByEmail(user.email);
+    const context = await getCurrentAdminContext(req);
 
     return NextResponse.json({
-      email: user.email || '',
-      isAdmin: access.isAdmin,
-      isSuperadmin: access.isSuperadmin,
-      role: access.role,
+      email: context.email,
+      isAdmin: context.isAdmin,
+      isSuperadmin: context.isSuperadmin,
+      isHrAdmin: context.isHrAdmin,
+      isGlobalAdmin: context.isGlobalAdmin,
+      canManageAccess: context.canManageAccess,
+      canManageSuperadmins: context.canManageSuperadmins,
+      role: context.role,
+      canonicalRole: context.canonicalRole,
+      accessibleRestaurantIds: context.accessibleRestaurantIds,
     });
-  } catch {
-    return NextResponse.json({ error: 'Ошибка проверки доступа' }, { status: 500 });
+  } catch (error) {
+    return jsonError(error, 'Ошибка проверки доступа');
   }
 }
