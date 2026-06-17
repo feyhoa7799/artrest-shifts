@@ -1,6 +1,7 @@
-﻿import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
 import { getAdminAccessByEmail } from '@/lib/admin-access';
+import { getEmployeeApplicationStatus } from '@/lib/application-status';
 import { getShiftMeta } from '@/lib/shift';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 
@@ -102,20 +103,6 @@ function getFirstName(profile: ProfileRow | null, email: string) {
   return email || 'коллега';
 }
 
-function parseShiftEnd(workDate: string, timeFrom: string, timeTo: string) {
-  const start = new Date(`${workDate}T${timeFrom}:00+03:00`);
-  const end = new Date(`${workDate}T${timeTo}:00+03:00`);
-
-  if (end.getTime() <= start.getTime()) {
-    end.setDate(end.getDate() + 1);
-  }
-
-  return end;
-}
-
-function parseShiftStart(workDate: string, timeFrom: string) {
-  return new Date(`${workDate}T${timeFrom}:00+03:00`).getTime();
-}
 
 async function loadUpcomingApprovedApplications(userId: string) {
   const { data: applicationsData, error: applicationsError } = await supabaseAdmin
@@ -172,16 +159,21 @@ async function loadUpcomingApprovedApplications(userId: string) {
 
       const restaurant = restaurantMap.get(slot.restaurant_id);
       const shiftMeta = getShiftMeta(slot.time_from, slot.time_to);
-      const shiftEnd = parseShiftEnd(slot.work_date, slot.time_from, slot.time_to);
-      const isFinished = shiftEnd.getTime() < Date.now();
+      const status = getEmployeeApplicationStatus({
+        applicationStatus: application.status,
+        slotStatus: slot.status,
+        workDate: slot.work_date,
+        timeFrom: slot.time_from,
+        timeTo: slot.time_to,
+      });
 
-      if (isFinished) return null;
+      if (!status.isActiveApproved) return null;
 
       return {
         id: application.id,
         created_at: application.created_at,
         status: application.status,
-        derived_status: 'active' as const,
+        derived_status: status.derivedStatus,
         rejection_reason: application.rejection_reason,
         restaurant_name: restaurant?.name || 'Ресторан',
         city: restaurant?.city || '',
@@ -193,9 +185,9 @@ async function loadUpcomingApprovedApplications(userId: string) {
         hourly_rate: slot.hourly_rate ?? null,
         hours: shiftMeta.hours,
         overnight: shiftMeta.overnight,
-        is_finished: false,
+        is_finished: status.isFinished,
         can_cancel: false,
-        sort_key: parseShiftStart(slot.work_date, slot.time_from),
+        sort_key: status.shiftStart?.getTime() ?? Date.parse(application.created_at),
       };
     })
     .filter(Boolean)
@@ -207,8 +199,25 @@ async function loadUpcomingApprovedApplications(userId: string) {
     .map((item) => {
       if (!item) return item;
 
-      const { sort_key: _sortKey, ...publicItem } = item;
-      return publicItem;
+      return {
+        id: item.id,
+        created_at: item.created_at,
+        status: item.status,
+        derived_status: item.derived_status,
+        rejection_reason: item.rejection_reason,
+        restaurant_name: item.restaurant_name,
+        city: item.city,
+        address: item.address,
+        work_date: item.work_date,
+        time_from: item.time_from,
+        time_to: item.time_to,
+        position: item.position,
+        hourly_rate: item.hourly_rate,
+        hours: item.hours,
+        overnight: item.overnight,
+        is_finished: item.is_finished,
+        can_cancel: item.can_cancel,
+      };
     });
 }
 

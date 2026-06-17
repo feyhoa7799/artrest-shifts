@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { getEmployeeApplicationStatus } from '@/lib/application-status';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getShiftMeta } from '@/lib/shift';
 
@@ -29,17 +30,6 @@ type RestaurantRow = {
   city: string | null;
   address: string | null;
 };
-
-function parseShiftEnd(workDate: string, timeFrom: string, timeTo: string) {
-  const start = new Date(`${workDate}T${timeFrom}:00+03:00`);
-  const end = new Date(`${workDate}T${timeTo}:00+03:00`);
-
-  if (end.getTime() <= start.getTime()) {
-    end.setDate(end.getDate() + 1);
-  }
-
-  return end;
-}
 
 export async function GET(req: NextRequest) {
   try {
@@ -106,24 +96,19 @@ export async function GET(req: NextRequest) {
 
         const restaurant = restaurantMap.get(slot.restaurant_id);
         const shiftMeta = getShiftMeta(slot.time_from, slot.time_to);
-        const shiftEnd = parseShiftEnd(slot.work_date, slot.time_from, slot.time_to);
-        const isFinished = shiftEnd.getTime() < Date.now();
-
-        let derivedStatus: 'pending' | 'active' | 'finished' | 'rejected' = 'pending';
-
-        if (application.status === 'rejected') {
-          derivedStatus = 'rejected';
-        } else if (isFinished) {
-          derivedStatus = 'finished';
-        } else if (application.status === 'approved') {
-          derivedStatus = 'active';
-        }
+        const status = getEmployeeApplicationStatus({
+          applicationStatus: application.status,
+          slotStatus: slot.status,
+          workDate: slot.work_date,
+          timeFrom: slot.time_from,
+          timeTo: slot.time_to,
+        });
 
         return {
           id: application.id,
           created_at: application.created_at,
           status: application.status,
-          derived_status: derivedStatus,
+          derived_status: status.derivedStatus,
           rejection_reason: application.rejection_reason,
           restaurant_name: restaurant?.name || 'Ресторан',
           city: restaurant?.city || '',
@@ -135,8 +120,11 @@ export async function GET(req: NextRequest) {
           hourly_rate: slot.hourly_rate ?? null,
           hours: shiftMeta.hours,
           overnight: shiftMeta.overnight,
-          is_finished: isFinished,
-          can_cancel: application.status === 'pending' && !isFinished,
+          is_finished: status.isFinished,
+          can_cancel:
+            application.status === 'pending' &&
+            status.isValidShiftTime &&
+            !status.isFinished,
         };
       })
       .filter(Boolean);
