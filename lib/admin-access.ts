@@ -122,7 +122,9 @@ export function canAssignRole(
   targetRole: CanonicalAdminRole
 ) {
   if (actorRole === 'superadmin') return true;
-  if (actorRole === 'hr_admin') return targetRole !== 'superadmin';
+  if (actorRole === 'hr_admin') {
+    return targetRole === 'restaurant_admin' || targetRole === 'territory_admin';
+  }
   return false;
 }
 

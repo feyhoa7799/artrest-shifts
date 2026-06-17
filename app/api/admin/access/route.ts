@@ -157,10 +157,18 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'grant') {
+      const currentTarget = await readAdminUser(targetEmail);
       const requestedRole = normalizeAdminRole(body?.role || 'restaurant_admin');
       const role: CanonicalAdminRole = isConfiguredSuperadminEmail(targetEmail)
         ? 'superadmin'
         : requestedRole;
+
+      if (
+        currentTarget?.role === 'superadmin' &&
+        !context.canManageSuperadmins
+      ) {
+        throw new ApiError('HR-админ не может управлять superadmin-доступом', 403);
+      }
 
       if (!canAssignRole(context.canonicalRole, role)) {
         throw new ApiError('Недостаточно прав для выдачи этой роли', 403);
@@ -235,9 +243,21 @@ export async function POST(req: NextRequest) {
       }
 
       const target = await readAdminUser(targetEmail);
+      const targetCanonicalRole = target ? normalizeAdminRole(target.role) : null;
 
       if (target?.role === 'superadmin' && !context.canManageSuperadmins) {
         throw new ApiError('HR-админ не может управлять superadmin-доступом', 403);
+      }
+
+      if (
+        !context.canManageSuperadmins &&
+        targetCanonicalRole !== 'restaurant_admin' &&
+        targetCanonicalRole !== 'territory_admin'
+      ) {
+        throw new ApiError(
+          'HR-админ может отзывать только restaurant_admin и territory_admin',
+          403
+        );
       }
 
       const { error } = await supabaseAdmin

@@ -4,7 +4,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentAdminContext, jsonError, ApiError } from '@/lib/admin-api-auth';
 import { assertCanAccessRestaurant, type AdminContext } from '@/lib/admin-access';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { normalizeNeededCount, syncSlotCapacity } from '@/lib/slot-capacity';
+import {
+  getApprovedApplicationsCount,
+  normalizeNeededCount,
+  syncSlotCapacity,
+} from '@/lib/slot-capacity';
 
 type SlotRow = {
   id: number;
@@ -157,6 +161,8 @@ async function handleSaveSlot(context: AdminContext, body: Record<string, unknow
   const comment = getString(body, 'comment');
   const isHot = Boolean(body.is_hot);
   const neededCount = normalizeNeededCount(body.needed_count);
+  let currentSlot: SlotRow | null = null;
+  let approvedCount = 0;
 
   if (!restaurantId || !workDate || !timeFrom || !timeTo || !position) {
     throw new ApiError('Заполнены не все обязательные поля слота', 400);
@@ -175,8 +181,23 @@ async function handleSaveSlot(context: AdminContext, body: Record<string, unknow
   validateFutureSlot(workDate, timeFrom, timeTo);
 
   if (slotId) {
-    const currentSlot = await getSlot(slotId);
+    currentSlot = await getSlot(slotId);
     assertCanAccessRestaurant(context, currentSlot.restaurant_id);
+    approvedCount = await getApprovedApplicationsCount(slotId);
+
+    if (neededCount < approvedCount) {
+      throw new ApiError(
+        `Нельзя указать меньше ${approvedCount}: столько сотрудников уже принято`,
+        400
+      );
+    }
+
+    if (approvedCount > 0 && restaurantId !== currentSlot.restaurant_id) {
+      throw new ApiError(
+        'Нельзя менять ресторан у слота, по которому уже есть принятые отклики',
+        400
+      );
+    }
   }
 
   const payload = {
@@ -189,7 +210,6 @@ async function handleSaveSlot(context: AdminContext, body: Record<string, unknow
     comment: comment || null,
     is_hot: isHot,
     needed_count: neededCount,
-    status: 'open',
   };
 
   if (slotId) {
@@ -203,6 +223,7 @@ async function handleSaveSlot(context: AdminContext, body: Record<string, unknow
       {
         ...payload,
         accepted_count: 0,
+        status: 'open',
       },
     ]);
 
