@@ -14,7 +14,12 @@ type SlotRow = {
   restaurant_id: number;
   position: string;
   work_date: string;
+  time_from: string;
+  time_to: string;
+  hourly_rate: number | null;
   is_hot: boolean | null;
+  needed_count: number | null;
+  accepted_count: number | null;
 };
 
 type FilterSlotRow = {
@@ -35,6 +40,7 @@ type Restaurant = {
   lat: number | null;
   lng: number | null;
   isHot?: boolean;
+  upcomingSlots?: SlotRow[];
 };
 
 function formatDateRu(value: string) {
@@ -54,7 +60,9 @@ export default async function SlotsPage(props: { searchParams: SearchParams }) {
 
   let slotsQuery = supabase
     .from('slots')
-    .select('restaurant_id, position, work_date, is_hot')
+    .select(
+      'restaurant_id, position, work_date, time_from, time_to, hourly_rate, is_hot, needed_count, accepted_count'
+    )
     .eq('status', 'open')
     .gte('work_date', todayStr);
 
@@ -92,6 +100,10 @@ export default async function SlotsPage(props: { searchParams: SearchParams }) {
     restaurants = ((data || []) as Restaurant[]).map((restaurant) => ({
       ...restaurant,
       isHot: hotRestaurantIds.has(restaurant.id),
+      upcomingSlots: typedOpenSlots
+        .filter((slot) => slot.restaurant_id === restaurant.id)
+        .sort((a, b) => a.work_date.localeCompare(b.work_date))
+        .slice(0, 3),
     }));
 
     restaurantsError = error?.message || null;

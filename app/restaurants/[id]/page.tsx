@@ -159,7 +159,8 @@ export default async function RestaurantPage({ params }: PageProps) {
       <section className="rounded-2xl border bg-white p-6 shadow-sm">
         <h2 className="mb-2 text-xl font-semibold">Доступные смены</h2>
         <p className="text-sm text-gray-600">
-          Ниже показаны только открытые смены этого ресторана.
+          Выберите подходящую смену и отправьте отклик. Если вы уже откликались на
+          смену в этот день, посмотрите статус в разделе «Мои отклики».
         </p>
 
         {slotsError && (
@@ -169,8 +170,9 @@ export default async function RestaurantPage({ params }: PageProps) {
         )}
 
         {!slots || slots.length === 0 ? (
-          <div className="mt-4 rounded-xl bg-gray-50 p-4 text-sm text-gray-700">
-            Сейчас открытых смен нет.
+          <div className="mt-4 rounded-xl bg-gray-50 p-5 text-sm text-gray-700">
+            Сейчас открытых смен нет. Загляните позже или вернитесь к списку
+            ресторанов, чтобы выбрать другую точку.
           </div>
         ) : (
           <div className="mt-6 space-y-4">
@@ -178,7 +180,10 @@ export default async function RestaurantPage({ params }: PageProps) {
               const meta = getShiftMeta(slot.time_from, slot.time_to);
 
               return (
-                <div key={slot.id} className="rounded-2xl border p-5">
+                <div
+                  key={slot.id}
+                  className={`rounded-2xl border p-5 ${slot.is_hot ? 'border-red-200 bg-red-50/30' : ''}`}
+                >
                   <div className="mb-3 flex flex-wrap items-center gap-2">
                     {slot.is_hot && (
                       <span className="rounded-full bg-red-100 px-2 py-1 text-xs text-red-700">
@@ -200,6 +205,11 @@ export default async function RestaurantPage({ params }: PageProps) {
                   </h3>
 
                   <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    <div className="text-sm text-gray-700">
+                      <span className="text-gray-500">Дата:</span>{' '}
+                      {formatDateRu(slot.work_date)}
+                    </div>
+
                     <div className="text-sm text-gray-700">
                       <span className="text-gray-500">Время:</span>{' '}
                       {slot.time_from} – {slot.time_to}
@@ -237,6 +247,11 @@ export default async function RestaurantPage({ params }: PageProps) {
                     >
                       Показать ресторан на карте
                     </a>
+                  </div>
+
+                  <div className="mt-3 text-xs text-gray-500">
+                    После отклика ресторан увидит вашу заявку и примет решение. Повторный
+                    отклик на ту же смену не нужен.
                   </div>
                 </div>
               );
