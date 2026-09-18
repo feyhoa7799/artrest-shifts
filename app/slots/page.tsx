@@ -1,7 +1,7 @@
 import Link from 'next/link';
 
 import SlotsExplorer from '@/app/components/SlotsExplorer';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin } from '@/lib/supabase-admin';
 
 type SearchParams = Promise<{
   position?: string;
@@ -52,7 +52,7 @@ export default async function SlotsPage(props: { searchParams: SearchParams }) {
 
   const todayStr = new Date().toISOString().slice(0, 10);
 
-  let slotsQuery = supabase
+  let slotsQuery = supabaseAdmin
     .from('slots')
     .select('restaurant_id, position, work_date, is_hot')
     .eq('status', 'open')
@@ -78,10 +78,11 @@ export default async function SlotsPage(props: { searchParams: SearchParams }) {
   let restaurantsError: string | null = null;
 
   if (restaurantIds.length > 0) {
-    let restaurantQuery = supabase
+    let restaurantQuery = supabaseAdmin
       .from('restaurants')
       .select('id, name, address, city, metro, lat, lng')
-      .in('id', restaurantIds);
+      .in('id', restaurantIds)
+      .eq('is_active', true);
 
     if (selectedMetro) {
       restaurantQuery = restaurantQuery.eq('metro', selectedMetro);
@@ -104,15 +105,16 @@ export default async function SlotsPage(props: { searchParams: SearchParams }) {
     return bHot - aHot || a.name.localeCompare(b.name);
   });
 
-  const { data: allOpenSlots } = await supabase
+  const { data: allOpenSlots } = await supabaseAdmin
     .from('slots')
     .select('position, work_date')
     .eq('status', 'open')
     .gte('work_date', todayStr);
 
-  const { data: allRestaurantsWithMetro } = await supabase
+  const { data: allRestaurantsWithMetro } = await supabaseAdmin
     .from('restaurants')
     .select('metro')
+    .eq('is_active', true)
     .not('metro', 'is', null);
 
   const positions = [
