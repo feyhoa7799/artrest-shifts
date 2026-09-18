@@ -1,6 +1,6 @@
 import ApplyButton from '@/app/components/ApplyButton';
 import { getShiftMeta } from '@/lib/shift';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin } from '@/lib/supabase-admin';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -80,13 +80,14 @@ export default async function RestaurantPage({ params }: PageProps) {
   const restaurantId = Number(id);
   const todayStr = new Date().toISOString().slice(0, 10);
 
-  const { data: restaurant, error: restaurantError } = await supabase
+  const { data: restaurant, error: restaurantError } = await supabaseAdmin
     .from('restaurants')
     .select('id, name, address, city, metro')
     .eq('id', restaurantId)
+    .eq('is_active', true)
     .single();
 
-  const { data: slotsData, error: slotsError } = await supabase
+  const { data: slotsData, error: slotsError } = await supabaseAdmin
     .from('slots')
     .select(
       'id, restaurant_id, work_date, time_from, time_to, position, hourly_rate, comment, status, is_hot, needed_count, accepted_count, created_at'
