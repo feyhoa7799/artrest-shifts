@@ -18,6 +18,8 @@ type MyApplication = {
   time_to: string;
   position: string;
   hourly_rate: number | null;
+  compensation_label: string;
+  compensation_value: string;
   hours: string | null;
   overnight: boolean;
   is_finished: boolean;
@@ -426,8 +428,8 @@ export default function MyApplications({ embedded = false }: MyApplicationsProps
                 </div>
 
                 <div className="text-sm text-gray-700">
-                  <span className="text-gray-500">Оплата:</span>{' '}
-                  {item.hourly_rate ? `${item.hourly_rate} ₽/час` : 'По договорённости'}
+                  <span className="text-gray-500">{item.compensation_label}:</span>{' '}
+                  {item.compensation_value}
                 </div>
 
                 <div className="text-sm text-gray-700">

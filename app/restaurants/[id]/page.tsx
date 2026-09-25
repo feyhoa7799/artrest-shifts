@@ -1,5 +1,6 @@
 import ApplyButton from '@/app/components/ApplyButton';
 import { getShiftMeta } from '@/lib/shift';
+import { getSlotCompensation } from '@/lib/slot-compensation';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 
 export const dynamic = 'force-dynamic';
@@ -16,7 +17,7 @@ type Slot = {
   time_from: string;
   time_to: string;
   position: string;
-  hourly_rate: number;
+  hourly_rate: number | null;
   comment: string | null;
   status: 'open' | 'pending' | 'closed' | 'assigned';
   is_hot: boolean | null;
@@ -177,6 +178,7 @@ export default async function RestaurantPage({ params }: PageProps) {
           <div className="mt-6 space-y-4">
             {slots.map((slot) => {
               const meta = getShiftMeta(slot.time_from, slot.time_to);
+              const compensation = getSlotCompensation(slot.hourly_rate, slot.comment);
 
               return (
                 <div key={slot.id} className="rounded-2xl border p-5">
@@ -208,8 +210,8 @@ export default async function RestaurantPage({ params }: PageProps) {
                     </div>
 
                     <div className="text-sm text-gray-700">
-                      <span className="text-gray-500">Оплата:</span>{' '}
-                      {slot.hourly_rate} ₽/час
+                      <span className="text-gray-500">{compensation.label}:</span>{' '}
+                      {compensation.value}
                     </div>
 
                     <div className="text-sm text-gray-700">

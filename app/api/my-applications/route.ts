@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getEmployeeApplicationStatus } from '@/lib/application-status';
+import { getSlotCompensation } from '@/lib/slot-compensation';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getShiftMeta } from '@/lib/shift';
 
@@ -21,6 +22,7 @@ type SlotRow = {
   time_to: string;
   position: string | null;
   hourly_rate: number | null;
+  comment: string | null;
   status: string;
 };
 
@@ -68,7 +70,9 @@ export async function GET(req: NextRequest) {
 
     const { data: slotsData } = await supabaseAdmin
       .from('slots')
-      .select('id, restaurant_id, work_date, time_from, time_to, position, hourly_rate, status')
+      .select(
+        'id, restaurant_id, work_date, time_from, time_to, position, hourly_rate, comment, status'
+      )
       .in('id', slotIds);
 
     const slots = (slotsData || []) as SlotRow[];
@@ -96,6 +100,7 @@ export async function GET(req: NextRequest) {
 
         const restaurant = restaurantMap.get(slot.restaurant_id);
         const shiftMeta = getShiftMeta(slot.time_from, slot.time_to);
+        const compensation = getSlotCompensation(slot.hourly_rate, slot.comment);
         const status = getEmployeeApplicationStatus({
           applicationStatus: application.status,
           slotStatus: slot.status,
@@ -118,6 +123,8 @@ export async function GET(req: NextRequest) {
           time_to: slot.time_to,
           position: slot.position || '',
           hourly_rate: slot.hourly_rate ?? null,
+          compensation_label: compensation.label,
+          compensation_value: compensation.value,
           hours: shiftMeta.hours,
           overnight: shiftMeta.overnight,
           is_finished: status.isFinished,
