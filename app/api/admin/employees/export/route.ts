@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 
 import { formatActivityStatus } from '@/lib/activity-format';
 import { ApiError, getCurrentAdminContext, jsonError } from '@/lib/admin-api-auth';
+import { buildEmployeeWorkbook } from '@/lib/employee-export-xlsx';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 
 type EmployeeProfile = {
@@ -31,7 +32,7 @@ type ActivitySummary = {
   ping_count: number | null;
 };
 
-const CSV_HEADERS = [
+const EMPLOYEE_HEADERS = [
   'Ресторан',
   'ID ресторана',
   'Зарегистрировано сотрудников в ресторане',
@@ -50,6 +51,8 @@ const CSV_HEADERS = [
   'Источник активности',
   'Сигналов активности',
 ];
+
+const SUMMARY_HEADERS = ['Ресторан', 'ID ресторана', 'Зарегистрировано сотрудников'];
 
 const PAGE_SIZE = 1000;
 
@@ -103,6 +106,22 @@ async function listActivitySummaries() {
   }
 }
 
+async function listRestaurants(restaurantIds: number[] | null) {
+  if (Array.isArray(restaurantIds) && restaurantIds.length === 0) return [];
+
+  let query = supabaseAdmin.from('restaurants').select('id, name');
+
+  if (Array.isArray(restaurantIds)) {
+    query = query.in('id', restaurantIds);
+  }
+
+  const { data, error } = await query.order('name', { ascending: true });
+
+  if (error) throw new Error(error.message);
+
+  return (data || []) as Restaurant[];
+}
+
 function formatMoscowDateTime(value?: string | null) {
   if (!value) return '';
 
@@ -115,25 +134,6 @@ function formatMoscowDateTime(value?: string | null) {
     dateStyle: 'short',
     timeStyle: 'short',
   }).format(date);
-}
-
-function protectSpreadsheetCell(value: unknown) {
-  const text = value === null || value === undefined ? '' : String(value);
-
-  // Excel interprets these prefixes as formulas, including values supplied by users.
-  if (/^\s*[=+\-@]/.test(text)) return `'${text}`;
-
-  return text;
-}
-
-function csvCell(value: unknown) {
-  return `"${protectSpreadsheetCell(value).replace(/"/g, '""')}"`;
-}
-
-function buildCsv(rows: unknown[][]) {
-  const lines = [CSV_HEADERS, ...rows].map((row) => row.map(csvCell).join(';'));
-
-  return `\uFEFFsep=;\r\n${lines.join('\r\n')}\r\n`;
 }
 
 function getMoscowDateStamp(now = new Date()) {
@@ -157,15 +157,11 @@ export async function GET(req: NextRequest) {
       throw new ApiError('Выгрузка сотрудников доступна только администраторам', 403);
     }
 
-    const [employees, restaurantsResult, activity] = await Promise.all([
+    const [employees, restaurants, activity] = await Promise.all([
       listEmployeeProfiles(context.accessibleRestaurantIds),
-      supabaseAdmin.from('restaurants').select('id, name'),
+      listRestaurants(context.accessibleRestaurantIds),
       listActivitySummaries(),
     ]);
-
-    if (restaurantsResult.error) throw new Error(restaurantsResult.error.message);
-
-    const restaurants = (restaurantsResult.data || []) as Restaurant[];
     const restaurantById = new Map(restaurants.map((restaurant) => [restaurant.id, restaurant]));
     const activityByUserId = new Map(activity.map((item) => [item.user_id, item]));
     const employeeCountByRestaurantId = new Map<number | null, number>();
@@ -192,7 +188,7 @@ export async function GET(req: NextRequest) {
       return (left.full_name || left.email).localeCompare(right.full_name || right.email, 'ru');
     });
 
-    const rows = sortedEmployees.map((employee) => {
+    const employeeRows = sortedEmployees.map((employee) => {
       const restaurantId = employee.home_restaurant_id || null;
       const restaurant = restaurantId ? restaurantById.get(restaurantId) : null;
       const employeeActivity = activityByUserId.get(employee.user_id);
@@ -218,13 +214,50 @@ export async function GET(req: NextRequest) {
       ];
     });
 
+    const summaryRows = restaurants
+      .map((restaurant) => [
+        restaurant.name,
+        restaurant.id,
+        employeeCountByRestaurantId.get(restaurant.id) || 0,
+      ])
+      .sort((left, right) => {
+        const countDiff = Number(right[2]) - Number(left[2]);
+
+        if (countDiff !== 0) return countDiff;
+
+        return String(left[0]).localeCompare(String(right[0]), 'ru');
+      });
+
+    if (employeeCountByRestaurantId.has(null)) {
+      summaryRows.push([
+        'Ресторан не указан',
+        '',
+        employeeCountByRestaurantId.get(null) || 0,
+      ]);
+    }
+
+    const workbook = buildEmployeeWorkbook([
+      {
+        name: 'Сводка',
+        headers: SUMMARY_HEADERS,
+        rows: summaryRows,
+        widths: [42, 16, 32],
+      },
+      {
+        name: 'Сотрудники',
+        headers: EMPLOYEE_HEADERS,
+        rows: employeeRows,
+        widths: [38, 14, 28, 30, 34, 20, 22, 20, 20, 22, 26, 22, 22, 22, 24, 20, 20],
+      },
+    ]);
+
     const date = getMoscowDateStamp();
 
-    return new Response(buildCsv(rows), {
+    return new Response(new Uint8Array(workbook), {
       status: 200,
       headers: {
-        'Content-Type': 'text/csv; charset=utf-8',
-        'Content-Disposition': `attachment; filename="employees-${date}.csv"`,
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': `attachment; filename="employees-${date}.xlsx"`,
         'Cache-Control': 'private, no-store, max-age=0',
         'X-Content-Type-Options': 'nosniff',
       },

@@ -638,7 +638,7 @@ export default function AdminDashboard({
 
       const blob = await response.blob();
       const disposition = response.headers.get('content-disposition') || '';
-      const filename = disposition.match(/filename="([^"]+)"/)?.[1] || 'employees.csv';
+      const filename = disposition.match(/filename="([^"]+)"/)?.[1] || 'employees.xlsx';
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
 
