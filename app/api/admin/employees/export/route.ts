@@ -53,15 +53,23 @@ const CSV_HEADERS = [
 
 const PAGE_SIZE = 1000;
 
-async function listEmployeeProfiles() {
+async function listEmployeeProfiles(restaurantIds: number[] | null) {
   const rows: EmployeeProfile[] = [];
 
+  if (Array.isArray(restaurantIds) && restaurantIds.length === 0) return rows;
+
   for (let from = 0; ; from += PAGE_SIZE) {
-    const { data, error } = await supabaseAdmin
+    let query = supabaseAdmin
       .from('employee_profiles')
       .select(
         'user_id, email, full_name, phone, role, home_restaurant_id, is_blocked, created_at'
-      )
+      );
+
+    if (Array.isArray(restaurantIds)) {
+      query = query.in('home_restaurant_id', restaurantIds);
+    }
+
+    const { data, error } = await query
       .order('user_id', { ascending: true })
       .range(from, from + PAGE_SIZE - 1);
 
@@ -145,12 +153,12 @@ export async function GET(req: NextRequest) {
   try {
     const context = await getCurrentAdminContext(req);
 
-    if (!context.isSuperadmin) {
-      throw new ApiError('Выгрузка сотрудников доступна только суперадмину', 403);
+    if (!context.isAdmin) {
+      throw new ApiError('Выгрузка сотрудников доступна только администраторам', 403);
     }
 
     const [employees, restaurantsResult, activity] = await Promise.all([
-      listEmployeeProfiles(),
+      listEmployeeProfiles(context.accessibleRestaurantIds),
       supabaseAdmin.from('restaurants').select('id, name'),
       listActivitySummaries(),
     ]);

@@ -564,10 +564,10 @@ export default function AdminDashboard({
     { id: 'closed' as const, label: 'Закрытые', count: closedSlots.length },
     { id: 'unrealized' as const, label: 'Прошедшие', count: unrealizedSlots.length },
     ...(admin?.isGlobalAdmin
-      ? [
-          { id: 'restaurants' as const, label: 'Рестораны', count: activeRestaurants.length },
-          { id: 'employees' as const, label: 'Сотрудники', count: employees.length },
-        ]
+      ? [{ id: 'restaurants' as const, label: 'Рестораны', count: activeRestaurants.length }]
+      : []),
+    ...(admin?.isAdmin
+      ? [{ id: 'employees' as const, label: 'Сотрудники', count: employees.length }]
       : []),
     ...(admin?.canManageAccess
       ? [{ id: 'access' as const, label: 'Доступы' }]
@@ -1510,22 +1510,24 @@ export default function AdminDashboard({
           </section>
         )}
 
-        {tab === 'employees' && admin.isGlobalAdmin && (
+        {tab === 'employees' && admin.isAdmin && (
           <section className="space-y-4">
             <SectionTitle
               title="Сотрудники"
-              description="Этот раздел доступен только глобальным ролям."
+              description={
+                admin.isGlobalAdmin
+                  ? 'Показаны сотрудники всех ресторанов.'
+                  : 'Показаны сотрудники назначенных вам ресторанов.'
+              }
               action={
-                admin.isSuperadmin ? (
-                  <button
-                    type="button"
-                    disabled={exportingEmployees}
-                    onClick={exportEmployees}
-                    className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {exportingEmployees ? 'Формирую файл...' : 'Выгрузить сотрудников'}
-                  </button>
-                ) : null
+                <button
+                  type="button"
+                  disabled={exportingEmployees}
+                  onClick={exportEmployees}
+                  className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {exportingEmployees ? 'Формирую файл...' : 'Выгрузить сотрудников'}
+                </button>
               }
             />
 
@@ -1598,19 +1600,21 @@ export default function AdminDashboard({
                           </div>
                         </div>
 
-                        <button
-                          type="button"
-                          disabled={saving}
-                          onClick={() =>
-                            runAdminAction('toggleEmployeeBlock', {
-                              user_id: employee.user_id,
-                              next_blocked: !employee.is_blocked,
-                            })
-                          }
-                          className="rounded-lg border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {employee.is_blocked ? 'Разблокировать' : 'Заблокировать'}
-                        </button>
+                        {admin.isGlobalAdmin && (
+                          <button
+                            type="button"
+                            disabled={saving}
+                            onClick={() =>
+                              runAdminAction('toggleEmployeeBlock', {
+                                user_id: employee.user_id,
+                                next_blocked: !employee.is_blocked,
+                              })
+                            }
+                            className="rounded-lg border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {employee.is_blocked ? 'Разблокировать' : 'Заблокировать'}
+                          </button>
+                        )}
                       </div>
                     </div>
                   );

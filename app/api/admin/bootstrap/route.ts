@@ -146,13 +146,21 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    if (context.isGlobalAdmin) {
-      const { data: employeesData, error: employeesError } = await supabaseAdmin
+    if (context.isAdmin) {
+      let employeesQuery = supabaseAdmin
         .from('employee_profiles')
         .select(
           'user_id, email, full_name, phone, role, home_restaurant_id, is_blocked, created_at, updated_at'
-        )
-        .order('created_at', { ascending: false });
+        );
+
+      if (Array.isArray(scopedRestaurantIds)) {
+        employeesQuery = employeesQuery.in('home_restaurant_id', allowedRestaurantIds);
+      }
+
+      const { data: employeesData, error: employeesError } = await employeesQuery.order(
+        'created_at',
+        { ascending: false }
+      );
 
       if (employeesError) {
         throw new Error(employeesError.message);
