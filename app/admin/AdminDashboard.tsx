@@ -384,6 +384,7 @@ export default function AdminDashboard({
   const [data, setData] = useState<BootstrapResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [exportingEmployees, setExportingEmployees] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
@@ -563,10 +564,10 @@ export default function AdminDashboard({
     { id: 'closed' as const, label: 'Закрытые', count: closedSlots.length },
     { id: 'unrealized' as const, label: 'Прошедшие', count: unrealizedSlots.length },
     ...(admin?.isGlobalAdmin
-      ? [
-          { id: 'restaurants' as const, label: 'Рестораны', count: activeRestaurants.length },
-          { id: 'employees' as const, label: 'Сотрудники', count: employees.length },
-        ]
+      ? [{ id: 'restaurants' as const, label: 'Рестораны', count: activeRestaurants.length }]
+      : []),
+    ...(admin?.isAdmin
+      ? [{ id: 'employees' as const, label: 'Сотрудники', count: employees.length }]
       : []),
     ...(admin?.canManageAccess
       ? [{ id: 'access' as const, label: 'Доступы' }]
@@ -610,6 +611,47 @@ export default function AdminDashboard({
       return false;
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function exportEmployees() {
+    setExportingEmployees(true);
+    setError('');
+
+    try {
+      const token = await getAccessToken();
+
+      if (!token) {
+        throw new Error('Нет авторизации');
+      }
+
+      const response = await fetch('/api/admin/employees/export', {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        throw new Error(data?.error || 'Не удалось скачать выгрузку');
+      }
+
+      const blob = await response.blob();
+      const disposition = response.headers.get('content-disposition') || '';
+      const filename = disposition.match(/filename="([^"]+)"/)?.[1] || 'employees.csv';
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Не удалось скачать выгрузку');
+    } finally {
+      setExportingEmployees(false);
     }
   }
 
@@ -1468,11 +1510,25 @@ export default function AdminDashboard({
           </section>
         )}
 
-        {tab === 'employees' && admin.isGlobalAdmin && (
+        {tab === 'employees' && admin.isAdmin && (
           <section className="space-y-4">
             <SectionTitle
               title="Сотрудники"
-              description="Этот раздел доступен только глобальным ролям."
+              description={
+                admin.isGlobalAdmin
+                  ? 'Показаны сотрудники всех ресторанов.'
+                  : 'Показаны сотрудники назначенных вам ресторанов.'
+              }
+              action={
+                <button
+                  type="button"
+                  disabled={exportingEmployees}
+                  onClick={exportEmployees}
+                  className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {exportingEmployees ? 'Формирую файл...' : 'Выгрузить сотрудников'}
+                </button>
+              }
             />
 
             {employees.length === 0 ? (
@@ -1544,19 +1600,21 @@ export default function AdminDashboard({
                           </div>
                         </div>
 
-                        <button
-                          type="button"
-                          disabled={saving}
-                          onClick={() =>
-                            runAdminAction('toggleEmployeeBlock', {
-                              user_id: employee.user_id,
-                              next_blocked: !employee.is_blocked,
-                            })
-                          }
-                          className="rounded-lg border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {employee.is_blocked ? 'Разблокировать' : 'Заблокировать'}
-                        </button>
+                        {admin.isGlobalAdmin && (
+                          <button
+                            type="button"
+                            disabled={saving}
+                            onClick={() =>
+                              runAdminAction('toggleEmployeeBlock', {
+                                user_id: employee.user_id,
+                                next_blocked: !employee.is_blocked,
+                              })
+                            }
+                            className="rounded-lg border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {employee.is_blocked ? 'Разблокировать' : 'Заблокировать'}
+                          </button>
+                        )}
                       </div>
                     </div>
                   );
@@ -1575,14 +1633,21 @@ export default function AdminDashboard({
 function SectionTitle({
   title,
   description,
+  action,
 }: {
   title: string;
   description?: string;
+  action?: ReactNode;
 }) {
   return (
     <section className="rounded-2xl border bg-white p-6 shadow-sm">
-      <h2 className="text-2xl font-semibold text-gray-900">{title}</h2>
-      {description && <p className="mt-2 text-sm text-gray-600">{description}</p>}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="text-2xl font-semibold text-gray-900">{title}</h2>
+          {description && <p className="mt-2 text-sm text-gray-600">{description}</p>}
+        </div>
+        {action}
+      </div>
     </section>
   );
 }
