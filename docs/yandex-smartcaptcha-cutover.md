@@ -15,6 +15,12 @@ APP_BASE_URL=https://podrabotka.art-rest.com
 
 Never print or commit the server key.
 
+The production `app` service is attached to the external
+`artrest-supabase_default` Docker network. The internal URL must resolve through
+that network (currently `http://api-gw:8000`). Do not point it at a host-only
+`127.0.0.1` port: inside the app container that address is the app container
+itself.
+
 ## Required gateway protection
 
 Yandex SmartCaptcha is validated by the application, not by GoTrue. At the
