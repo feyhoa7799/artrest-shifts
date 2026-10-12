@@ -63,6 +63,58 @@ Managed Auth оказался новее закрепленного self-hosted 
 Перед переключением приложения отдельно нужны SMTP, публичный TLS-домен,
 тестовый вход существующего пользователя и внешний backup.
 
+## Текущее состояние после smoke-test
+
+12 октября 2026 года тестовый контур прошёл ручной smoke-test приложения:
+
+- существующий пользователь входит;
+- регистрация и подтверждение email работают через согласованный SMTP;
+- профиль заполняется и сохраняется;
+- Yandex SmartCaptcha проверяется сервером;
+- Auth и REST доступны тестовому приложению по внутренней Docker network;
+- production-приложение продолжает использовать managed Supabase.
+
+До production cutover остаётся обязательный блокер: настроенный и проверенный
+зашифрованный backup во внешнее российское хранилище.
+
+## Внешний backup
+
+Файлы `infra/supabase/backup-postgres.sh`, `backup.env.example` и systemd units
+готовят ежедневный backup в приватный S3 через Restic.
+
+Backup включает:
+
+- роли PostgreSQL;
+- полный custom-format dump базы `postgres`, включая `auth` и `public`;
+- checksums и manifest;
+- root-only Supabase `.env` и Compose-конфигурацию внутри зашифрованного
+  Restic repository.
+
+Рекомендуемый Timeweb S3:
+
+- приватный bucket;
+- холодный класс;
+- 100 ГБ;
+- endpoint `https://s3.twcstorage.ru`;
+- region `ru-1`;
+- без публичного доступа.
+
+Object Lock нельзя включать автоматически: блокировка удаления может конфликтовать
+с `restic forget --prune`. Его можно добавить позже только после отдельной проверки
+совместимости retention policy.
+
+Секреты хранятся только в `/etc/artrest-supabase-backup.env` и отдельном
+`/etc/artrest-supabase-backup.password` с правами `0600`. Их нельзя передавать
+в чат, Git или командную строку.
+
+Перед включением timer необходимо вручную выполнить service один раз, увидеть
+успешный snapshot в S3, скачать его и провести тестовое восстановление в
+отдельную временную PostgreSQL-базу. Сам факт успешной загрузки не подтверждает
+восстанавливаемость backup.
+
+Точная процедура установки приведена в
+`docs/self-hosted-supabase-backup-runbook.md`.
+
 ## Выбранная версия
 
 Managed Supabase использует PostgreSQL 17.6. Официальный self-hosted Supabase сейчас также использует PostgreSQL 17 по умолчанию. Для первого теста закреплён image `supabase/postgres:17.6.1.136` из upstream commit `6119ea1eb51005a5c6e172c75bcc954c622ff4cd`.
