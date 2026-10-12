@@ -5,11 +5,13 @@ type AnySupabaseClient = SupabaseClient<any, any, any>;
 let cachedClient: AnySupabaseClient | null = null;
 
 function getSupabaseAdminClient(): AnySupabaseClient {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseUrl =
+    process.env.SUPABASE_INTERNAL_URL?.trim() ||
+    process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!supabaseUrl) {
-    throw new Error('NEXT_PUBLIC_SUPABASE_URL is not configured');
+    throw new Error('Supabase server connection is not configured');
   }
 
   if (!serviceRoleKey) {
