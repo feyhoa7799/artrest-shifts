@@ -24,6 +24,7 @@ GoTrue operations must be blocked while the application keeps access through
 
 - `POST /auth/v1/otp`
 - `POST /auth/v1/recover`
+- `POST /auth/v1/signup`
 - `POST /auth/v1/token?grant_type=password`
 
 Do not block token refresh, OTP verification, authenticated user operations,
