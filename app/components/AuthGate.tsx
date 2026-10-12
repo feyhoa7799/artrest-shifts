@@ -4,10 +4,15 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { User } from '@supabase/supabase-js';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import Turnstile from 'react-turnstile';
 
 import ApprovedShiftsCard from '@/app/components/ApprovedShiftsCard';
 import TelegramLinkCard from '@/app/components/TelegramLinkCard';
+import YandexSmartCaptcha from '@/app/components/YandexSmartCaptcha';
+import {
+  loginWithPassword,
+  sendPasswordRecovery,
+  sendRegistrationCode,
+} from '@/lib/captcha-auth-api';
 import { validatePasswordStrength } from '@/lib/password';
 import { supabase } from '@/lib/supabase';
 
@@ -528,16 +533,10 @@ export default function AuthGate() {
     setSendingCode(true);
 
     try {
-      const { error } = await supabase.auth.signInWithOtp({
-        email: registerEmail.trim(),
-        options: {
-          shouldCreateUser: true,
-          captchaToken,
-        },
-      });
-
-      if (error) {
-        showError(error.message);
+      try {
+        await sendRegistrationCode(registerEmail.trim(), captchaToken);
+      } catch (error) {
+        showError(error instanceof Error ? error.message : 'Не удалось отправить код');
         resetCaptcha();
         return;
       }
@@ -664,16 +663,22 @@ export default function AuthGate() {
     setLoggingIn(true);
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email: loginEmail.trim(),
-        password: loginPassword,
-        options: {
-          captchaToken,
-        },
-      });
+      try {
+        const session = await loginWithPassword(
+          loginEmail.trim(),
+          loginPassword,
+          captchaToken
+        );
+        const { error } = await supabase.auth.setSession({
+          access_token: session.access_token,
+          refresh_token: session.refresh_token,
+        });
 
-      if (error) {
-        showError(error.message);
+        if (error) {
+          throw error;
+        }
+      } catch (error) {
+        showError(error instanceof Error ? error.message : 'Не удалось выполнить вход');
         resetCaptcha();
         return;
       }
@@ -703,18 +708,10 @@ export default function AuthGate() {
     setSendingReset(true);
 
     try {
-      const redirectTo =
-        typeof window !== 'undefined'
-          ? `${window.location.origin}/reset-password`
-          : undefined;
-
-      const { error } = await supabase.auth.resetPasswordForEmail(loginEmail.trim(), {
-        redirectTo,
-        captchaToken,
-      });
-
-      if (error) {
-        showError(error.message);
+      try {
+        await sendPasswordRecovery(loginEmail.trim(), captchaToken);
+      } catch (error) {
+        showError(error instanceof Error ? error.message : 'Не удалось отправить письмо');
         resetCaptcha();
         return;
       }
@@ -998,18 +995,13 @@ export default function AuthGate() {
               </div>
 
               <div className="rounded-2xl border bg-gray-50 p-4">
-                <Turnstile
+                <YandexSmartCaptcha
                   key={captchaKey}
-                  sitekey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || ''}
-                  onVerify={(token) => {
+                  onTokenChange={(token) => {
                     setCaptchaToken(token);
-                    setError('');
-                  }}
-                  onExpire={() => {
-                    setCaptchaToken(null);
+                    if (token) setError('');
                   }}
                   onError={() => {
-                    setCaptchaToken(null);
                     showError('Ошибка проверки CAPTCHA. Попробуйте ещё раз.');
                   }}
                 />
@@ -1076,18 +1068,13 @@ export default function AuthGate() {
                 </div>
 
                 <div className="rounded-2xl border bg-gray-50 p-4">
-                  <Turnstile
+                  <YandexSmartCaptcha
                     key={captchaKey}
-                    sitekey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || ''}
-                    onVerify={(token) => {
+                    onTokenChange={(token) => {
                       setCaptchaToken(token);
-                      setError('');
-                    }}
-                    onExpire={() => {
-                      setCaptchaToken(null);
+                      if (token) setError('');
                     }}
                     onError={() => {
-                      setCaptchaToken(null);
                       showError('Ошибка проверки CAPTCHA. Попробуйте ещё раз.');
                     }}
                   />
