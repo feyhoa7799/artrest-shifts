@@ -20,7 +20,7 @@
 - TypeScript
 - Supabase
 - Yandex Maps
-- Cloudflare Turnstile
+- Yandex SmartCaptcha
 - Docker / Docker Compose
 
 ---
@@ -64,4 +64,16 @@
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 NEXT_PUBLIC_YANDEX_MAP_API_KEY=
-NEXT_PUBLIC_TURNSTILE_SITE_KEY=
+NEXT_PUBLIC_YANDEX_SMARTCAPTCHA_SITE_KEY=ysc1_oU7uW0mr8hoEhl6omcNdAEzINeaJ2a40cBT49Nb6991907a9
+```
+
+### Серверные
+```env
+YANDEX_SMARTCAPTCHA_SERVER_KEY=
+SUPABASE_INTERNAL_URL=
+APP_BASE_URL=https://podrabotka.art-rest.com
+```
+
+`YANDEX_SMARTCAPTCHA_SERVER_KEY` нельзя передавать в браузер, коммитить или
+печатать в логах. `SUPABASE_INTERNAL_URL` должен указывать на недоступный из
+интернета адрес GoTrue/Kong после перехода на self-hosted Supabase.
