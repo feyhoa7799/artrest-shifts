@@ -74,11 +74,23 @@ ROLLBACK_APP_IMAGE=$(docker inspect artrest-shifts-app --format '{{.Image}}')
 ROLLBACK_BOT_IMAGE=$(docker inspect artrest-shifts-telegram-bot --format '{{.Image}}')
 ENV_SHA256=$(sudo sha256sum .env.production | awk '{print $1}')
 NGINX_SHA256=$(sudo sha256sum /etc/nginx/sites-enabled/podrabotka.art-rest.com | awk '{print $1}')
+TS=$(date +%Y%m%d-%H%M%S)
+EXPORT_DIR="/opt/artrest-supabase-cutover-$TS"
+CUTOVER_STATE=/root/.artrest-supabase-cutover.state
 
 printf 'ROLLBACK_COMMIT=%s\nAPP_IMAGE=%s\nBOT_IMAGE=%s\nENV_SHA256=%s\nNGINX_SHA256=%s\n' \
   "$ROLLBACK_COMMIT" "$ROLLBACK_APP_IMAGE" "$ROLLBACK_BOT_IMAGE" \
   "$ENV_SHA256" "$NGINX_SHA256"
+
+umask 077
+printf 'TS=%q\nEXPORT_DIR=%q\nROLLBACK_COMMIT=%q\nROLLBACK_APP_IMAGE=%q\nROLLBACK_BOT_IMAGE=%q\n' \
+  "$TS" "$EXPORT_DIR" "$ROLLBACK_COMMIT" "$ROLLBACK_APP_IMAGE" \
+  "$ROLLBACK_BOT_IMAGE" > "$CUTOVER_STATE"
 ```
+
+Перед каждой следующей фазой выполнять
+`source /root/.artrest-supabase-cutover.state`. Файл не содержит ключей или
+паролей, но остаётся root-only.
 
 STOP, если Git dirty, сайт не отвечает 200, любой Supabase container unhealthy,
 backup timer не active или свободного места меньше 30 ГБ.
@@ -110,8 +122,7 @@ STOP при любой ошибке.
 командную строку.
 
 ```bash
-TS=$(date +%Y%m%d-%H%M%S)
-EXPORT_DIR="/opt/artrest-supabase-cutover-$TS"
+source /root/.artrest-supabase-cutover.state
 sudo install -d -m 0700 "$EXPORT_DIR"
 sudo install -m 0600 /dev/null /root/.artrest-managed-source.env
 sudoedit /root/.artrest-managed-source.env
@@ -128,6 +139,7 @@ sudoedit /root/.artrest-managed-source.env
 4. Остановить только Telegram-бот:
 
 ```bash
+source /root/.artrest-supabase-cutover.state
 cd /root/artrest-shifts
 cp -a /etc/nginx/sites-available/podrabotka.art-rest.com \
   "/etc/nginx/sites-available/podrabotka.art-rest.com.pre-supabase-$TS"
@@ -171,6 +183,7 @@ sudo bash -lc '
 Старый data-каталог не удаляется. Он сохраняется как локальный DB rollback.
 
 ```bash
+source /root/.artrest-supabase-cutover.state
 cd /opt/artrest-supabase
 DB_ROLLBACK_DIR="/opt/artrest-supabase/volumes/db/data.pre-cutover-$TS"
 
@@ -245,6 +258,7 @@ STOP при любом расхождении. Не merge PR #12 и не мен�
 maintenance mode:
 
 ```bash
+source /root/.artrest-supabase-cutover.state
 cd /root/artrest-shifts
 sudo cp -a .env.production ".env.production.pre-supabase-$TS"
 ```
@@ -367,6 +381,7 @@ Rollback нужен при 5xx, невозможности входа/refresh, �
 7. Выполнить health и login smoke-test.
 
 ```bash
+source /root/.artrest-supabase-cutover.state
 cd /root/artrest-shifts
 git checkout "$ROLLBACK_COMMIT"
 cp -a ".env.production.pre-supabase-$TS" .env.production
