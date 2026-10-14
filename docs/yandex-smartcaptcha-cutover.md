@@ -34,8 +34,10 @@ GoTrue operations must be blocked while the application keeps access through
 - `POST /auth/v1/token?grant_type=password`
 
 Do not block token refresh, OTP verification, authenticated user operations,
-or password recovery verification. The exact Nginx rules must be reviewed
-against the final self-hosted gateway topology before production deployment.
+or password recovery verification. The reviewed production template is
+`infra/nginx/podrabotka.art-rest.com.self-hosted.conf`: public token exchange is
+limited to `grant_type=refresh_token`, while password login remains behind the
+application route and SmartCaptcha.
 
 Without this gateway restriction, an attacker could call GoTrue directly and
 bypass the application-level CAPTCHA.
@@ -54,6 +56,9 @@ bypass the application-level CAPTCHA.
    verification, session refresh, and password update.
 6. Only then prepare one production window for the self-hosted Auth cutover,
    gateway restrictions, and application deployment.
+
+The complete freeze, dump, restore, deployment, validation, and rollback
+sequence is documented in `docs/self-hosted-supabase-cutover-runbook.md`.
 
 The integration fails closed: if SmartCaptcha is unavailable or not
 configured, protected authentication requests are rejected rather than
