@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Art Rest Supabase backup
+
+[Timer]
+OnCalendar=*-*-* 00:30:00 UTC
+RandomizedDelaySec=15m
+Persistent=true
+Unit=artrest-supabase-backup.service
+
+[Install]
+WantedBy=timers.target
