@@ -1,0 +1,24 @@
+[Unit]
+Description=Encrypted Art Rest Supabase backup to off-host S3
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+Environment=ARTREST_BACKUP_ENV_FILE=/etc/artrest-supabase-backup.env
+ExecStart=/usr/local/sbin/artrest-supabase-backup
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadOnlyPaths=/opt/artrest-supabase /etc/artrest-supabase-backup.env /etc/artrest-supabase-backup.password
+ReadWritePaths=/var/backups/artrest-supabase
+
+[Install]
+WantedBy=multi-user.target

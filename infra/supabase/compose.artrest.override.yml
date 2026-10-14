@@ -1,0 +1,55 @@
+name: artrest-supabase
+
+x-artrest-logging: &artrest-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "3"
+
+services:
+  studio:
+    mem_limit: 768m
+    pids_limit: 256
+    logging: *artrest-logging
+
+  api-gw:
+    mem_limit: 256m
+    pids_limit: 128
+    logging: *artrest-logging
+
+  auth:
+    mem_limit: 384m
+    pids_limit: 128
+    logging: *artrest-logging
+
+  rest:
+    mem_limit: 256m
+    pids_limit: 128
+    logging: *artrest-logging
+
+  meta:
+    mem_limit: 256m
+    pids_limit: 128
+    logging: *artrest-logging
+
+  db:
+    mem_limit: 3g
+    pids_limit: 512
+    stop_grace_period: 60s
+    logging: *artrest-logging
+
+  realtime:
+    profiles: ["unused"]
+
+  storage:
+    profiles: ["unused"]
+
+  imgproxy:
+    profiles: ["unused"]
+
+  functions:
+    profiles: ["unused"]
+
+  supavisor:
+    profiles: ["unused"]
+
