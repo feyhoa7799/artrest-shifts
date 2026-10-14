@@ -3,7 +3,6 @@
 files = [
     Path("app/components/AuthGate.tsx"),
     Path("app/components/ApprovedShiftsCard.tsx"),
-    Path("app/components/TelegramLinkCard.tsx"),
 ]
 
 for path in files:

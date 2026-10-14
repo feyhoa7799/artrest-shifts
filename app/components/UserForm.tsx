@@ -192,7 +192,7 @@ export default function UserForm() {
 
       <input
         name="contact"
-        placeholder="Телефон / Telegram"
+        placeholder="Телефон"
         value={form.contact}
         onChange={handleChange}
         className="w-full rounded-lg border p-3"

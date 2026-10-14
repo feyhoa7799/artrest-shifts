@@ -27,16 +27,6 @@ select 'public.restaurants', count(*) from public.restaurants
 union all
 select 'public.slots', count(*) from public.slots
 union all
-select 'public.telegram_link_tokens', count(*) from public.telegram_link_tokens
-union all
-select 'public.telegram_links', count(*) from public.telegram_links
-union all
-select 'public.telegram_notification_jobs', count(*) from public.telegram_notification_jobs
-union all
-select 'public.telegram_notification_log', count(*) from public.telegram_notification_log
-union all
-select 'public.telegram_notification_settings', count(*) from public.telegram_notification_settings
-union all
 select 'public.user_activity_summary', count(*) from public.user_activity_summary
 order by object_name;
 

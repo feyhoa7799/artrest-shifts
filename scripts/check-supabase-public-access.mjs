@@ -25,11 +25,6 @@ const expectedTables = [
   'employee_profiles',
   'restaurants',
   'slots',
-  'telegram_link_tokens',
-  'telegram_links',
-  'telegram_notification_jobs',
-  'telegram_notification_log',
-  'telegram_notification_settings',
   'user_activity_summary',
 ];
 
