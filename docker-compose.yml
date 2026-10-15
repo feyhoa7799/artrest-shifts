@@ -23,26 +23,6 @@ services:
       - default
       - supabase-internal
 
-  telegram-bot:
-    build:
-      context: ./telegram-bot
-    container_name: artrest-shifts-telegram-bot
-    restart: always
-    env_file:
-      - .env.production
-    environment:
-      NODE_ENV: production
-      NODE_OPTIONS: --dns-result-order=ipv4first
-      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
-      TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME}
-      APP_BASE_URL: ${APP_BASE_URL}
-      SUPABASE_URL: ${SUPABASE_URL}
-      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
-      REMINDER_WINDOW_MINUTES: ${REMINDER_WINDOW_MINUTES:-15}
-      POLL_INTERVAL_MS: ${POLL_INTERVAL_MS:-60000}
-    extra_hosts:
-      - "api.telegram.org:149.154.167.220"
-
 networks:
   supabase-internal:
     external: true

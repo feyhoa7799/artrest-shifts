@@ -953,7 +953,7 @@ export default function HomeAuthGate() {
         <h2 className="mb-2 text-2xl font-semibold">Привет, {firstName}</h2>
 
         <p className="mb-5 text-sm text-gray-600">
-          Здесь коротко показано главное. Данные профиля, пароль, Telegram и выход
+          Здесь коротко показано главное. Данные профиля, пароль и выход
           теперь находятся во вкладке «Профиль».
         </p>
 

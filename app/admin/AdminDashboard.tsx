@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
-import Link from 'next/link';
 
 import AdminAccessManager from './AdminAccessManager';
 import AdminRefreshButton from './AdminRefreshButton';
@@ -780,14 +779,6 @@ export default function AdminDashboard({
               >
                 Обновить данные
               </button>
-              {admin.canManageAccess && (
-                <Link
-                  href="/admin/telegram"
-                  className="rounded-lg border px-4 py-3 text-sm text-gray-700 hover:bg-gray-50"
-                >
-                  Telegram
-                </Link>
-              )}
             </div>
           </div>
 

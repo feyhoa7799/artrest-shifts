@@ -3,9 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import ChangePasswordForm from '@/app/components/ChangePasswordForm';
-import TelegramLinkCard, {
-  type TelegramStatus,
-} from '@/app/components/TelegramLinkCard';
 import { supabase } from '@/lib/supabase';
 
 const ROLES = [
@@ -37,7 +34,6 @@ type Profile = {
 type ProfileBootstrapResponse = {
   profile?: Profile;
   restaurants?: Restaurant[];
-  telegram?: TelegramStatus | null;
   error?: string;
 };
 
@@ -147,7 +143,6 @@ export default function ProfilePageClient() {
     profileFingerprint(emptyProfile)
   );
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
-  const [telegramStatus, setTelegramStatus] = useState<TelegramStatus | null>(null);
 
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
@@ -218,7 +213,6 @@ export default function ProfilePageClient() {
     setSavedProfileKey(profileFingerprint(loadedProfile));
     setEmail(loadedProfile.email);
     setRestaurants(Array.isArray(data.restaurants) ? data.restaurants : []);
-    setTelegramStatus(data.telegram || null);
   }
 
   async function hydrate() {
@@ -535,13 +529,6 @@ export default function ProfilePageClient() {
           </div>
         </div>
       </section>
-
-      {accessToken && (
-        <TelegramLinkCard
-          accessToken={accessToken}
-          initialStatus={telegramStatus}
-        />
-      )}
 
       <ChangePasswordForm email={email || profile.email} />
 

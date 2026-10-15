@@ -6,7 +6,6 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 
 import ApprovedShiftsCard from '@/app/components/ApprovedShiftsCard';
-import TelegramLinkCard from '@/app/components/TelegramLinkCard';
 import YandexSmartCaptcha from '@/app/components/YandexSmartCaptcha';
 import {
   loginWithPassword,
@@ -1410,10 +1409,6 @@ export default function AuthGate() {
 
       {profileReady && !profile.is_blocked && sessionAccessToken && (
         <ApprovedShiftsCard accessToken={sessionAccessToken} />
-      )}
-
-      {profileReady && !profile.is_blocked && sessionAccessToken && (
-        <TelegramLinkCard accessToken={sessionAccessToken} />
       )}
 
     </div>

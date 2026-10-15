@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
 import { supabase } from '@/lib/supabase';
@@ -288,12 +287,6 @@ export default function AdminAccessManager() {
             </p>
           </div>
 
-          <Link
-            href="/admin/telegram"
-            className="rounded-lg border px-4 py-3 text-sm text-gray-700 hover:bg-gray-50"
-          >
-            Telegram
-          </Link>
         </div>
 
         {configuredSuperadminEmail && (
