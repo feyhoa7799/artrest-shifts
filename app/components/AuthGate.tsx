@@ -595,7 +595,6 @@ export default function AuthGate() {
       },
       body: JSON.stringify({
         accepted: true,
-        policy_version: '2025-09-01',
       }),
     });
   }
@@ -1057,8 +1056,20 @@ export default function AuthGate() {
                       className="mt-1 h-4 w-4 rounded border-gray-300"
                     />
                     <span>
-                      Я соглашаюсь на обработку персональных данных и ознакомлен(а) с{' '}
-                      <Link href="/privacy" className="text-red-600 hover:underline">
+                      Я даю{' '}
+                      <Link
+                        href="/privacy/consent"
+                        target="_blank"
+                        className="text-red-600 hover:underline"
+                      >
+                        согласие на обработку персональных данных
+                      </Link>{' '}
+                      и ознакомлен(а) с{' '}
+                      <Link
+                        href="/privacy"
+                        target="_blank"
+                        className="text-red-600 hover:underline"
+                      >
                         политикой обработки персональных данных
                       </Link>
                       .
