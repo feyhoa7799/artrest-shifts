@@ -70,6 +70,9 @@ export default function PrivacyPage() {
             Сервис «Подработка Арт Рест» · редакция от {PRIVACY_POLICY_DATE_RU} ·
             версия {PRIVACY_POLICY_VERSION}
           </p>
+          <p className="text-sm text-gray-600">
+            Утверждено ООО «Арт Рест» {PRIVACY_POLICY_DATE_RU}.
+          </p>
         </header>
 
         <div className="space-y-8 text-sm leading-6 text-gray-700 sm:text-base sm:leading-7">
