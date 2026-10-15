@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { PRIVACY_POLICY_VERSION } from '@/lib/privacy-policy';
 
 async function getUserFromRequest(req: NextRequest) {
   const authHeader = req.headers.get('authorization');
@@ -26,7 +27,6 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
     const accepted = Boolean(body.accepted);
-    const policyVersion = String(body.policy_version || '2025-09-01');
 
     if (!accepted) {
       return NextResponse.json(
@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
       user_id: user.id,
       email: user.email || '',
       accepted: true,
-      policy_version: policyVersion,
+      policy_version: PRIVACY_POLICY_VERSION,
       accepted_at: new Date().toISOString(),
     };
 
