@@ -10,6 +10,7 @@ import ApprovedShiftsCard, {
 } from '@/app/components/ApprovedShiftsCard';
 import { useActivityPing } from '@/app/components/useActivityPing';
 import YandexSmartCaptcha from '@/app/components/YandexSmartCaptcha';
+import { getPasswordAuthErrorMessage } from '@/lib/auth-error-messages';
 import {
   loginWithPassword,
   sendPasswordRecovery,
@@ -541,7 +542,7 @@ export default function HomeAuthGate() {
         });
 
         if (error) {
-          throw error;
+          throw new Error(getPasswordAuthErrorMessage(error));
         }
       } catch (error) {
         showError(error instanceof Error ? error.message : 'Не удалось выполнить вход');
