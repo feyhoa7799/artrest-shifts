@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { getPasswordAuthErrorMessage } from '@/lib/auth-error-messages';
 import { getSupabaseAuthServerClient } from '@/lib/supabase-auth-server';
 import { validateSmartCaptcha } from '@/lib/yandex-smartcaptcha';
 
@@ -42,7 +43,10 @@ export async function POST(request: NextRequest) {
       });
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+      return NextResponse.json(
+        { error: getPasswordAuthErrorMessage(error, 'recovery') },
+        { status: 400 }
+      );
     }
 
     return NextResponse.json(

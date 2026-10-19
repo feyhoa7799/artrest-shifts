@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { getPasswordAuthErrorMessage } from '@/lib/auth-error-messages';
 import { getSupabaseAuthServerClient } from '@/lib/supabase-auth-server';
 import { validateSmartCaptcha } from '@/lib/yandex-smartcaptcha';
 
@@ -42,7 +43,7 @@ export async function POST(request: NextRequest) {
 
     if (error || !data.session) {
       return NextResponse.json(
-        { error: error?.message || 'Не удалось войти в аккаунт' },
+        { error: getPasswordAuthErrorMessage(error) },
         { status: 401 }
       );
     }
